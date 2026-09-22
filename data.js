@@ -23,14 +23,15 @@
     "오프셋": OFFSET_ICON,
   };
 
-  // 호요랩 "캐릭터 정보" 화면을 통째로 복사-붙여넣기 했을 때, 성유물 개별 이름만 보고
-  // 부위/세트를 자동으로 알아내기 위한 사전. 새 세트나 이름을 알게 되면 한 줄만 추가하면 됨.
-  const PIECE_NAME_REGISTRY = {
-    "진실 갈망의 꽃": { slotKey: "flower", setKey: "하늘 경계가 드러난 밤" },
-    "깊은 죄의 깃털": { slotKey: "feather", setKey: "하늘 경계가 드러난 밤" },
-    "눈 덮인 고향의 최후": { slotKey: "sands", setKey: "하늘 경계가 드러난 밤" },
-    "넘치는 술잔": { slotKey: "goblet", setKey: "하늘 경계가 드러난 밤" },
-    "영겁의 왕관": { slotKey: "circlet", setKey: "하늘 경계가 드러난 밤" },
+  // "하늘 경계가 드러난 밤" 세트만 개별 이름으로 인식한다 (세트 하나당 이름 5개 고정이라 유지보수 거의 없음).
+  // 이 사전에 없는 이름은 전부 "오프셋"으로 분류되고, 부위는 주스탯 종류로 판별한다 (app.js의 classifySlotFromMainStat).
+  const NIGHT_SET_PIECE_NAMES = {
+    "진실 갈망의 꽃": "flower",
+    "깊은 죄의 깃털": "feather",
+    "계시의 종": "sands",
+    "눈 덮인 고향의 최후": "sands",
+    "넘치는 술잔": "goblet",
+    "영겁의 왕관": "circlet",
   };
 
   // 붙여넣기 텍스트의 부옵션 이름 → {flat, pct} 키. 값에 %가 붙어있는지로 flat/pct를 가른다.
@@ -88,4 +89,3 @@
   };
   // 재구축(계몽의 먼지) 부위별 소모량
   const DUST_COST = { flower: 1, feather: 1, sands: 2, goblet: 2, circlet: 2 };
-  const REFORGE_TRIALS = 3000;
