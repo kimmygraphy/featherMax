@@ -4,6 +4,7 @@
 
   const STATE = {
     editingId: null,
+    uid: null,
     artifacts: [],
     buildSelection: { flower: "", feather: "", sands: "", goblet: "", circlet: "" },
     buildCharacter: CHARACTERS[0] ? CHARACTERS[0].name : null,
@@ -431,7 +432,48 @@
   // 보장 롤 미리보기 UI는 뺐지만, calcGuaranteedRolls 자체는 runReforgeRecommendation에서 계속 쓰임.
   function updatePityDisplay(){}
 
-  // ---------- reforge simulation ----------
+  // ---------- reforge exact expected-value calculation ----------
+  // 예전엔 몬테카를로(3000회 시행 평균)로 기대이득을 "추정"했는데, 경우의 수가 적어서
+  // 사실 정확한 확률분포를 직접 계산할 수 있다. 롤 하나하나의 결과가 유한한 이산분포이므로
+  // 그걸 전부 컨볼루션(합성곱)해서 최종 CV의 정확한 분포를 구하고, 그 분포로 기대이득을 계산한다.
+  // 몬테카를로보다 더 빠르고, 버튼을 몇 번을 눌러도 항상 똑같은 값이 나온다(노이즈 없음).
+  function round6(v){ return Math.round(v * 1e6) / 1e6; }
+
+  // 롤 하나가 `type`으로 확정 배정됐을 때, CV 기여값의 확률분포(Map: 기여값 → 확률)
+  function rollDistribution(type){
+    const m = new Map();
+    if (type === "critRate_"){
+      for (const v of ROLL_TABLE.critRate_){ const k = round6(2 * v); m.set(k, (m.get(k) || 0) + 0.25); }
+      return m;
+    }
+    if (type === "critDMG_"){
+      for (const v of ROLL_TABLE.critDMG_){ const k = round6(v); m.set(k, (m.get(k) || 0) + 0.25); }
+      return m;
+    }
+    return new Map([[0, 1]]); // 치확/치피가 아닌 타입은 CV에 기여 없음
+  }
+
+  // 롤 하나가 `types`(4개) 중 무작위로 배정될 때의 CV 기여값 분포
+  function randomRollDistribution(types){
+    const m = new Map();
+    for (const t of types){
+      const sub = rollDistribution(t);
+      for (const [v, p] of sub) m.set(v, (m.get(v) || 0) + p * (1 / types.length));
+    }
+    return m;
+  }
+
+  function convolve(dist, add){
+    const result = new Map();
+    for (const [v1, p1] of dist){
+      for (const [v2, p2] of add){
+        const v = round6(v1 + v2);
+        result.set(v, (result.get(v) || 0) + p1 * p2);
+      }
+    }
+    return result;
+  }
+
   // 부옵션 4개(존재하는 타입) 중, 치확/치피가 하나라도 있는 성유물만 재구축 의미가 있다.
   // 우선순위 2스탯은 (치확+치피 둘 다 있으면) 그 둘로 고정, 하나만 있으면 [그 스탯, 나머지 중 하나]로.
   function simulateOneArtifact(art, guaranteedRolls){
@@ -457,30 +499,17 @@
 
     const rollCount = art.startedWith4Substats ? 5 : 4;
     const guaranteed = Math.min(guaranteedRolls || 2, rollCount);
-    let gainSum = 0;
 
-    for (let t = 0; t < REFORGE_TRIALS; t++){
-      let newCritRate = 0, newCritDMG = 0;
-      // 보장된 롤은 우선순위 2스탯에 번갈아 배정, 나머지는 4타입 중 랜덤
-      const assigned = [];
-      for (let g = 0; g < guaranteed; g++) assigned.push(priority[g % 2]);
-      for (let r = guaranteed; r < rollCount; r++){
-        assigned.push(types[Math.floor(Math.random() * types.length)]);
-      }
-      for (const type of assigned){
-        if (type === "critRate_"){
-          const tiers = ROLL_TABLE.critRate_;
-          newCritRate += tiers[Math.floor(Math.random() * tiers.length)];
-        } else if (type === "critDMG_"){
-          const tiers = ROLL_TABLE.critDMG_;
-          newCritDMG += tiers[Math.floor(Math.random() * tiers.length)];
-        }
-      }
-      const newCV = 2 * newCritRate + newCritDMG;
-      gainSum += Math.max(0, newCV - oldCV);
+    let dist = new Map([[0, 1]]);
+    for (let g = 0; g < guaranteed; g++) dist = convolve(dist, rollDistribution(priority[g % 2]));
+    if (guaranteed < rollCount){
+      const randDist = randomRollDistribution(types);
+      for (let r = guaranteed; r < rollCount; r++) dist = convolve(dist, randDist);
     }
 
-    const expectedGain = gainSum / REFORGE_TRIALS;
+    let expectedGain = 0;
+    for (const [v, p] of dist) expectedGain += p * Math.max(0, v - oldCV);
+
     const dust = DUST_COST[art.slotKey] || 2;
     return {
       skip: false,
@@ -605,50 +634,111 @@
     root.innerHTML = html;
   }
 
-  // ---------- storage backend (브라우저 로컬저장소 전용) ----------
-  function setSyncState(){}
+  // ---------- Firebase Auth + Firestore storage ----------
+  let fbApp = null, fbAuth = null, fbDb = null, artifactsUnsub = null;
 
-  function localCollectionKey(){ return "artifactLedger.items"; }
-
-  function localLoadAll(){
-    try {
-      const raw = localStorage.getItem(localCollectionKey());
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? arr : [];
-    } catch(e){ return []; }
-  }
-  function localSaveAll(arr){
-    try { localStorage.setItem(localCollectionKey(), JSON.stringify(arr)); } catch(e){}
+  function firebaseConfigured(){
+    return typeof firebaseConfig !== "undefined" && firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
   }
 
-  function localAdd(data){
-    const arr = localLoadAll();
-    const id = "loc_" + Date.now() + "_" + Math.random().toString(36).slice(2,8);
-    arr.unshift(Object.assign({ id }, data));
-    localSaveAll(arr);
-    STATE.artifacts = arr;
-    renderList();
-  }
-  function localUpdate(id, data){
-    const arr = localLoadAll();
-    const idx = arr.findIndex(a => a.id === id);
-    if (idx >= 0) arr[idx] = Object.assign({ id }, data);
-    localSaveAll(arr);
-    STATE.artifacts = arr;
-    renderList();
-  }
-  function localDelete(id){
-    let arr = localLoadAll();
-    arr = arr.filter(a => a.id !== id);
-    localSaveAll(arr);
-    STATE.artifacts = arr;
-    renderList();
+  function initFirebase(){
+    if (!firebaseConfigured() || !window.firebase) return false;
+    if (!fbApp){
+      fbApp = firebase.initializeApp(firebaseConfig);
+      fbAuth = firebase.auth();
+      fbDb = firebase.firestore();
+    }
+    return true;
   }
 
-  // 신규 성유물 1건을 브라우저 로컬저장소에 기록한다. saveArtifact와 JSON 일괄 등록이 공유한다.
+  function usernameToEmail(username){
+    const domain = (typeof AUTH_FAKE_EMAIL_DOMAIN !== "undefined") ? AUTH_FAKE_EMAIL_DOMAIN : "artifact-ledger.local";
+    return `${username}@${domain}`;
+  }
+  function validUsername(u){ return /^[a-zA-Z0-9_]{3,20}$/.test(u); }
+
+  const AUTH_ERROR_MESSAGES = {
+    "auth/email-already-in-use": "이미 있는 아이디예요.",
+    "auth/weak-password": "비밀번호는 6자 이상이어야 해요.",
+    "auth/user-not-found": "존재하지 않는 아이디예요.",
+    "auth/wrong-password": "비밀번호가 틀렸어요.",
+    "auth/invalid-email": "아이디 형식이 올바르지 않아요.",
+    "auth/invalid-credential": "아이디 또는 비밀번호가 올바르지 않아요.",
+    "auth/too-many-requests": "시도가 너무 많아요. 잠시 후 다시 시도해주세요.",
+  };
+  function authErrorMessage(e){ return AUTH_ERROR_MESSAGES[e && e.code] || ("오류: " + (e && e.message ? e.message : e)); }
+
+  async function authSignup(){
+    const errEl = $("authError");
+    errEl.textContent = "";
+    if (!initFirebase()){ errEl.textContent = "firebase-config.js에 Firebase 설정값을 먼저 채워넣어야 해요."; return; }
+    const username = $("authUsername").value.trim();
+    const password = $("authPassword").value;
+    if (!validUsername(username)){ errEl.textContent = "아이디는 영문/숫자/밑줄 3~20자로 입력해주세요."; return; }
+    if (password.length < 6){ errEl.textContent = "비밀번호는 6자 이상이어야 해요."; return; }
+    try { await fbAuth.createUserWithEmailAndPassword(usernameToEmail(username), password); }
+    catch(e){ errEl.textContent = authErrorMessage(e); }
+  }
+
+  async function authLogin(){
+    const errEl = $("authError");
+    errEl.textContent = "";
+    if (!initFirebase()){ errEl.textContent = "firebase-config.js에 Firebase 설정값을 먼저 채워넣어야 해요."; return; }
+    const username = $("authUsername").value.trim();
+    const password = $("authPassword").value;
+    try { await fbAuth.signInWithEmailAndPassword(usernameToEmail(username), password); }
+    catch(e){ errEl.textContent = authErrorMessage(e); }
+  }
+
+  async function authLogout(){
+    if (artifactsUnsub){ artifactsUnsub(); artifactsUnsub = null; }
+    if (fbAuth) await fbAuth.signOut();
+  }
+
+  function showAuthGate(){
+    $("authGate").style.display = "";
+    $("mainApp").style.display = "none";
+  }
+  function showMainApp(username){
+    $("authGate").style.display = "none";
+    $("mainApp").style.display = "";
+    $("authUserLabel").textContent = username;
+  }
+
+  function artifactsCollection(){ return fbDb.collection("users").doc(STATE.uid).collection("artifacts"); }
+  function settingsDoc(){ return fbDb.collection("users").doc(STATE.uid).collection("meta").doc("settings"); }
+
+  function startFirestoreSync(){
+    if (artifactsUnsub) artifactsUnsub();
+    artifactsUnsub = artifactsCollection().onSnapshot((snap) => {
+      STATE.artifacts = sortArtifacts(snap.docs.map(d => Object.assign({ id: d.id }, d.data())));
+      renderList();
+    }, (err) => { console.error("firestore snapshot error", err); });
+    loadDustSetting();
+  }
+
+  function watchAuthState(){
+    if (!initFirebase()){
+      $("authError").textContent = "firebase-config.js에 Firebase 프로젝트 설정값을 채워넣어야 로그인 기능이 동작해요.";
+      return;
+    }
+    fbAuth.onAuthStateChanged((user) => {
+      if (user){
+        STATE.uid = user.uid;
+        showMainApp((user.email || "").split("@")[0]);
+        startFirestoreSync();
+      } else {
+        STATE.uid = null;
+        if (artifactsUnsub){ artifactsUnsub(); artifactsUnsub = null; }
+        showAuthGate();
+      }
+    });
+  }
+
+  // 신규 성유물 1건을 로그인한 사용자의 Firestore 문서로 기록한다. saveArtifact와 JSON 일괄 등록이 공유한다.
   async function createArtifactRecord(data){
     data.createdAt = Date.now();
-    localAdd(data);
+    await artifactsCollection().add(data);
   }
 
   // 붙여넣은 JSON 한 건을 저장 가능한 형태로 검증/정규화한다.
@@ -768,6 +858,26 @@
   // 형식: <피스 이름> / Lv.NN / <주스탯 이름> / <주스탯 값> / (<부옵션 이름> / [강화횟수 숫자]? / <부옵션 값>) x N
   // 강화횟수 배지는 항상 1~9 사이 "숫자 한 자리"뿐인 줄이라 이걸로 값 줄과 구분한다
   // (부옵션 값은 아무리 작아도 두 자리 이상이거나 소수점/%가 붙어있어서 안 겹침).
+  //
+  // 부위 판별: 이름이 NIGHT_SET_PIECE_NAMES에 있으면 그걸로 확정(세트="하늘 경계가 드러난 밤").
+  // 없으면 주스탯 종류로 판별하고 세트는 "오프셋"으로 분류한다 — 게임 규칙상 아래 5가지는 겹칠 수 없음:
+  //   HP(고정치)→꽃, 공격력(고정치)→깃털, 원소 충전 효율%→시계,
+  //   치확%/치피%/치유 보너스%→왕관, 원소딸%/물리딸%→성배.
+  // 공격력%/HP%/방어력%/원소 마스터리만 시계·성배·왕관이 다 가질 수 있어 애매한데,
+  // 캐릭터 정보 화면은 항상 꽃→깃→시계→성배→왕관 순으로 나열되므로 "이 배치에서 몇 번째로
+  // 나온 애매한 항목인지"로 순서대로 시계→성배→왕관에 배정한다 (5개를 한 번에 붙여넣는다는 전제).
+  function classifySlotFromMainStat(mainName, mainIsPct, posState){
+    if (mainName === "HP" && !mainIsPct) return "flower";
+    if (mainName === "공격력" && !mainIsPct) return "feather";
+    if (mainName === "원소 충전 효율") return "sands";
+    if (mainName === "치명타 확률" || mainName === "치명타 피해" || mainName === "치유 보너스") return "circlet";
+    if (mainIsPct && mainName !== "치명타 피해" && /피해/.test(mainName)) return "goblet";
+    // 공격력%/HP%/방어력%/원소 마스터리 — 이미 배정된 슬롯(이름 매칭으로 확정된 것 포함)은 건너뛰고
+    // 시계→성배→왕관 순서로 아직 안 쓰인 슬롯에 배정한다.
+    const order = ["sands", "goblet", "circlet"];
+    return order.find(s => !posState.usedSlots.has(s)) || null;
+  }
+
   function parseHoyolabPaste(text){
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     const levelIdxs = [];
@@ -776,6 +886,7 @@
     const items = [];
     const errors = [];
     const defaultLocation = STATE.buildCharacter || (CHARACTERS[0] && CHARACTERS[0].name) || OTHER_LOCATION;
+    const posState = { usedSlots: new Set() };
 
     levelIdxs.forEach((lvIdx, k) => {
       const nameIdx = lvIdx - 1;
@@ -785,13 +896,21 @@
       const contentEnd = (k + 1 < levelIdxs.length) ? levelIdxs[k + 1] - 2 : lines.length - 1;
       const content = lines.slice(contentStart, contentEnd + 1);
 
-      const reg = PIECE_NAME_REGISTRY[name];
-      if (!reg){
-        errors.push(`"${name}": 등록되지 않은 이름이에요 (수동으로 등록해주세요)`);
+      if (content.length < 2){ errors.push(`"${name}": 주스탯 줄을 찾지 못했어요`); return; }
+      const mainName = content[0];
+      const mainIsPct = /%$/.test(content[1]);
+
+      const knownSlot = NIGHT_SET_PIECE_NAMES[name];
+      const slotKey = knownSlot || classifySlotFromMainStat(mainName, mainIsPct, posState);
+      const setKey = knownSlot ? "하늘 경계가 드러난 밤" : "오프셋";
+
+      if (!slotKey){
+        errors.push(`"${name}": 주스탯("${mainName}")으로 부위를 판별하지 못했어요`);
         return;
       }
+      posState.usedSlots.add(slotKey);
 
-      // 앞 2줄은 주스탯 이름+값이라 건너뛰고, 그 뒤부터 부옵션을 반복해서 읽는다.
+      // 앞 2줄(주스탯 이름+값)은 건너뛰고, 그 뒤부터 부옵션을 반복해서 읽는다.
       let idx = 2;
       const substats = [];
       while (idx < content.length && substats.length < 4){
@@ -814,12 +933,11 @@
         return;
       }
 
+      const fixed = FIXED_MAIN_STATS[slotKey];
       items.push({
-        slotKey: reg.slotKey,
-        setKey: reg.setKey,
-        location: defaultLocation,
-        startedWith4Substats: true,
-        substats,
+        slotKey, setKey, rarity: 5, level: 20,
+        mainStatKey: fixed.key, mainStatValue: fixed.value,
+        location: defaultLocation, startedWith4Substats: true, substats,
       });
     });
 
@@ -877,7 +995,7 @@
     btn.disabled = true;
     try {
       if (STATE.editingId){
-        localUpdate(STATE.editingId, data);
+        await artifactsCollection().doc(STATE.editingId).set(data);
       } else {
         await createArtifactRecord(data);
       }
@@ -891,7 +1009,7 @@
 
   async function deleteArtifact(id){
     try {
-      localDelete(id);
+      await artifactsCollection().doc(id).delete();
       if (STATE.editingId === id) resetForm();
     } catch(err){
       alert("삭제 중 문제가 생겼어요: " + (err && err.message ? err.message : err));
@@ -903,28 +1021,18 @@
     return arr.slice().sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
   }
 
-  function localLoadDustSpent(){
-    try { return parseInt(localStorage.getItem("artifactLedger.dustSpent"), 10) || 0; }
-    catch(e){ return 0; }
-  }
-  function localSaveDustSpent(v){
-    try { localStorage.setItem("artifactLedger.dustSpent", String(v)); } catch(e){}
-  }
-
   async function loadDustSetting(){
-    $("dustSpentInput").value = localLoadDustSpent();
+    try {
+      const snap = await settingsDoc().get();
+      $("dustSpentInput").value = (snap.exists && snap.data().dustSpent) || 0;
+    } catch(e){
+      $("dustSpentInput").value = 0;
+    }
     updatePityDisplay();
   }
 
   async function saveDustSetting(value){
-    localSaveDustSpent(value);
-  }
-
-  async function initStorage(){
-    setSyncState();
-    STATE.artifacts = sortArtifacts(localLoadAll());
-    renderList();
-    loadDustSetting();
+    try { await settingsDoc().set({ dustSpent: value }); } catch(e){ /* 무시 — 다음 저장 때 재시도됨 */ }
   }
 
   function bindEvents(){
@@ -959,6 +1067,10 @@
       updatePityDisplay();
       saveDustSetting(v);
     });
+    $("authLoginBtn").addEventListener("click", authLogin);
+    $("authSignupBtn").addEventListener("click", authSignup);
+    $("authLogoutBtn").addEventListener("click", authLogout);
+    $("authPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") authLogin(); });
   }
 
   initTabs();
@@ -970,6 +1082,6 @@
   updateMainStatDisplay();
   renderSubstatRows([]);
   bindEvents();
-  initStorage();
+  watchAuthState();
 
 })();
