@@ -188,6 +188,14 @@
   }
 
   .btnrow { display: flex; gap: 10px; margin-top: 16px; }
+  .btnrow-right { display: flex; justify-content: flex-end; margin-top: 14px; }
+  .section-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .section-header-row h2 { margin: 0; }
   button {
     font-family: inherit;
     font-size: 14px;
