@@ -24,17 +24,22 @@
   };
 
   // 캐릭터 레지스트리 — 나중에 캐릭터를 추가하려면 이 배열에 객체 하나만 더 넣으면 됨.
-  // charBaseATK/charBaseCritDMG는 캐릭터 기초스탯(레벨 95), weaponBase*는 장착 무기 기초스탯(레벨 90) 기준.
+  // 캐릭터 레벨(돌파 단계) 선택지 — 순서대로 드롭다운에 표시됨.
+  const CHAR_LEVEL_OPTIONS = ["80/80", "80/90", "90", "95", "100"];
+
+  // atkByLevel: CHAR_LEVEL_OPTIONS의 각 단계에서 기초 공격력. charBaseCritDMG는 최대 돌파 이후로는
+  // 레벨과 무관하게 고정이라 레벨별 테이블 없이 하나만 둠. weaponBase*는 장착 무기 기초스탯(레벨 90) 기준.
   const CHARACTERS = [
     {
       name: "플린스",
       icon: "data/imgs/characters/flins.png",
-      charBaseATK: 391,
+      atkByLevel: { "80/80": 310, "80/90": 326, "90": 352, "95": 391, "100": 431 },
       charBaseCritDMG: 88.4,
       weaponBaseATK: 674,
       weaponBaseCritRate: 22.1,
     },
   ];
+  const DEFAULT_CHAR_LEVEL = "95";
   const UNIVERSAL_BASE_CRIT_RATE = 5; // 모든 캐릭터 공통 치확 기본값
   const OTHER_LOCATION = "기타";
   const LOCATION_OPTIONS = [...CHARACTERS.map(c => c.name), OTHER_LOCATION];
