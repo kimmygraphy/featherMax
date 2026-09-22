@@ -1,149 +1,85 @@
-<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>깨달음의 가루 최적화</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&family=Spectral+SC:wght@600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-<div class="wrap">
+# 깨달음의 가루 최적화
 
-  <header class="top">
-    <h1>깨달음의 가루 최적화</h1>
-  </header>
+원신(Genshin Impact) 성유물 계산 파일럿 웹앱. 등록, 캐릭터 스펙 계산, 재구축(계몽의 먼지) 추천까지 한 페이지에서 처리합니다.
 
-  <nav class="tabnav">
-    <button class="tab-btn active" data-tab="registry">성유물 추가/보유 성유물</button>
-    <button class="tab-btn" data-tab="build">캐릭터 스펙</button>
-    <button class="tab-btn" data-tab="reforge">재구축 추천</button>
-  </nav>
+정적 HTML/CSS/JS 4파일로만 동작하며 빌드 과정이나 서버, 패키지 매니저가 필요 없습니다. 파일을 그대로 정적 호스팅(GitHub Pages 등)에 올리면 끝입니다.
 
-  <div class="tab-panel" id="tab-registry">
+## 파일 구조
 
-  <section class="card">
-    <h2 id="formTitle">새 성유물 등록</h2>
+```
+index.html   — 페이지 뼈대 (마크업만, 데이터·로직 없음)
+style.css    — 전체 스타일
+data.js      — 고정 데이터: 성유물 슬롯/부옵션 정의, 롤 값 테이블, 세트 목록,
+               캐릭터 레지스트리(CHARACTERS), 재구축 상수 등
+app.js       — 화면 렌더링·저장·시뮬레이션 로직 전체
+data/imgs/artifacts/   — 성유물 부위·세트 아이콘 (flower.png, feather.png, sands.png,
+                          goblet.png, circlet.png, night.png 등 — 직접 추가)
+data/imgs/characters/  — 캐릭터 아이콘 (flins.png 등 — 직접 추가)
+```
 
-    <div class="field">
-      <label>부위</label>
-      <div class="icon-select" id="slotKeyField"></div>
-    </div>
+`index.html`이 `data.js` → `app.js` 순서로 불러옵니다. 두 파일 다 모듈이 아닌 일반 스크립트라 `data.js`의 최상위 상수(`CHARACTERS`, `SLOTS` 등)를 `app.js`가 그대로 참조합니다 — 번들러나 `import`/`export` 없이도 동작해요.
 
-    <div class="row2">
-      <div class="field">
-        <label>세트</label>
-        <div class="icon-select" id="setKeyField"></div>
-      </div>
-      <div class="field">
-        <label>장착 캐릭터</label>
-        <div class="icon-select" id="locationField"></div>
-      </div>
-    </div>
+부위/세트/캐릭터 선택 드롭다운은 네이티브 `<select>`가 아니라 아이콘을 보여주기 위한 커스텀 드롭다운(`app.js`의 `mountIconSelect`)입니다. `data.js`에서 `icon` 값이 `.png`/`.jpg`/`.svg`/`.webp`로 끝나면 이미지로, 아니면(이모지 등) 텍스트로 렌더링됩니다.
 
-    <div class="field">
-      <label>주스탯 (풀강 고정값)</label>
-      <div id="mainStatDisplay" class="mainstat-display"></div>
-    </div>
+## 캐릭터 추가하는 법
 
-    <label style="display:block; font-size:12.5px; color:var(--ink-dim); margin: 16px 0 6px;">부옵션 (최대 4개)</label>
-    <div id="substatRows"></div>
+`data.js`의 `CHARACTERS` 배열에 객체 하나만 추가하면 됩니다:
 
-    <label class="checkline">
-      <input type="checkbox" id="startedWith4" checked />
-      4줄 시작
-    </label>
-
-    <div class="btnrow">
-      <button class="primary" id="saveBtn">성유물 등록</button>
-      <button class="ghost" id="cancelBtn" style="display:none;">수정 취소</button>
-    </div>
-    <div class="form-error" id="formError"></div>
-  </section>
-
-  <section class="card">
-    <h2>JSON으로 한번에 등록</h2>
-    <textarea id="jsonInput" class="json-input" rows="8" placeholder='[
+```js
+const CHARACTERS = [
   {
-    "slotKey": "flower",
-    "setKey": "하늘 경계가 드러난 밤",
-    "location": "플린스",
-    "startedWith4Substats": true,
-    "substats": [
-      {"key": "critDMG_", "value": 24.9},
-      {"key": "critRate_", "value": 11.7},
-      {"key": "atk_", "value": 5.3},
-      {"key": "atk", "value": 14}
-    ]
-  }
-]'></textarea>
-    <div class="btnrow">
-      <button class="primary" id="jsonImportBtn">가져오기</button>
-    </div>
-    <div class="form-error" id="jsonError"></div>
-    <div class="json-result" id="jsonResult"></div>
-  </section>
+    name: "플린스",
+    icon: "data/imgs/characters/flins.png",
+    atkByLevel: { "80/80": 310, "80/90": 326, "90": 352, "95": 391, "100": 431 }, // 돌파 단계별 기초 공격력
+    charBaseCritDMG: 88.4,   // 최대 돌파 이후로는 레벨과 무관하게 고정
+    weaponBaseATK: 674,
+    weaponBaseCritRate: 22.1,
+  },
+  {
+    name: "새캐릭터",
+    icon: "data/imgs/characters/new.png",
+    atkByLevel: { "80/80": 0, "80/90": 0, "90": 0, "95": 0, "100": 0 },
+    charBaseCritDMG: 0,
+    weaponBaseATK: 0,
+    weaponBaseCritRate: 0,
+  }, // 추가 예시
+];
+```
 
-  <section class="card">
-    <div class="section-header-row">
-      <h2>보유 성유물</h2>
-      <button class="ghost" id="jsonExportBtnTop">내보내기</button>
-    </div>
-    <div id="listRoot"><div class="empty">등록된 성유물이 아직 없어요.</div></div>
-    <div class="btnrow-right">
-      <button class="ghost" id="jsonExportBtnBottom">내보내기</button>
-    </div>
-    <div class="json-result" id="exportStatus"></div>
-  </section>
+`atkByLevel`의 키는 `CHAR_LEVEL_OPTIONS`(`"80/80"`, `"80/90"`, `"90"`, `"95"`, `"100"`) 다섯 단계를 그대로 써야 캐릭터 스펙 탭의 "캐릭터 레벨" 드롭다운과 맞물립니다.
 
-  </div>
+추가하면 "장착 캐릭터" 드롭다운, 캐릭터 스펙 탭의 캐릭터 선택, 재구축 탭의 활성 세트 판별까지 전부 자동으로 그 캐릭터를 인식합니다. 아이콘 파일을 `data/imgs/characters/`에 넣지 않으면 그 캐릭터는 아이콘 없이(빈 이미지) 표시돼요.
 
-  <div class="tab-panel" id="tab-build" style="display:none;">
+## 기능
 
-  <section class="card">
-    <div class="row2">
-      <div class="field">
-        <label>캐릭터</label>
-        <div class="icon-select" id="buildCharSelectField"></div>
-      </div>
-      <div class="field">
-        <label for="buildCharLevel">캐릭터 레벨</label>
-        <select id="buildCharLevel"></select>
-      </div>
-    </div>
-    <h2>부위별 성유물 선택</h2>
-    <div id="buildSlotSelectors"></div>
-  </section>
+- **성유물 추가/보유 성유물**: 부위/세트/장착 캐릭터/부옵션을 등록·수정·삭제. JSON으로 여러 개 한 번에 등록·내보내기 가능.
+- **캐릭터 스펙**: 부위별로 성유물을 골라 최종 공격력 / 치명타 확률 / 치명타 피해 / CV(2×치확+치피)를 계산.
+- **재구축 추천**: 보유한 5★·풀강 성유물마다 재구축(치확·치피 우선) 결과를 몬테카를로로 시뮬레이션해서, 먼지 1개당 CV 기대 상승치가 큰 순서로 추천. 하로우드 엑서지시스(6·12·18 보장 롤 상승) 및 4세트 유지(여유 슬롯 포함) 로직 반영.
 
-  <section class="card">
-    <h2 id="buildResultsTitle">캐릭터 최종스펙</h2>
-    <div id="buildResults" class="build-results"></div>
-  </section>
+## 실행 방법
 
-  </div>
+4개 파일(`index.html`, `style.css`, `data.js`, `app.js`)을 같은 폴더에 두고 정적 파일 서버로 열면 됩니다. `data.js`/`app.js`가 `<script src="...">`로 로드되기 때문에 `index.html`을 파일로 그냥 더블클릭해서 열면 브라우저 보안 정책(CORS)에 막혀 안 될 수 있어요 — 반드시 로컬 서버를 통해 열어주세요.
 
-  <div class="tab-panel" id="tab-reforge" style="display:none;">
+```bash
+# 예: 로컬에서 간단히 띄우기
+python3 -m http.server 8000
+# http://localhost:8000 접속
+```
 
-  <section class="card">
-    <h2>재구축 우선순위</h2>
-    <p class="reforge-note">깨달음의 가루 소모량 대비 CV 상승잠재력 기준으로 정렬됩니다.</p>
+## GitHub Pages로 배포하기
 
-    <div class="field">
-      <label for="dustSpentInput">현재 해석 진도 (다음 재구축 직전 기준, 0~17)</label>
-      <input type="number" id="dustSpentInput" min="0" max="17" step="1" value="0" />
-    </div>
+1. 이 저장소의 Settings → Pages로 이동
+2. Source를 `main` 브랜치 / `root` 폴더로 설정
+3. 저장하면 `https://<사용자명>.github.io/<저장소명>/` 에서 접속 가능
 
-    <button class="primary" id="reforgeRunBtn" style="width:100%; margin: 12px 0 4px;">재구축 추천 계산하기</button>
-    <div id="reforgeResults"></div>
-  </section>
+## 데이터 저장
 
-  </div>
+브라우저의 `localStorage`에만 저장됩니다. **기기·브라우저마다 따로 저장되고 서버 동기화는 없어요.** "성유물 추가/보유 성유물" 탭의 "내보내기" 버튼으로 전체 데이터를 JSON 파일로 다운로드할 수 있고, 같은 형식을 "가져오기" 칸에 붙여넣으면 복원/이전이 됩니다.
 
-</div>
+## 알려진 가정치 / 한계
 
-<script src="data.js"></script>
-<script src="app.js"></script>
-</body>
-</html>
+- 부옵션 롤 값(치확·치피)은 공개된 커뮤니티 참고치를 사용했어요. 패치에 따라 실제 값과 미세하게 다를 수 있습니다.
+- 하로우드 엑서지시스(고급/계시 재구축) 판정은 "진행도 0~17, 18에서 리셋"이라는 관찰된 동작을 기준으로 구현했습니다.
+- 세트 효과 자체는 CV 점수에 반영하지 않고, 재구축 추천 시 "현재 4개 이상 차지하는 세트 + 남는 여유 슬롯"만 후보로 필터링하는 방식으로 우회했습니다.
+- 캐릭터/무기 기초 스탯은 `data.js`의 `CHARACTERS` 배열에 캐릭터별로 등록하는 구조라, 지금은 플린스 한 명만 들어있어요.
+- 아이콘 이미지 파일(`data/imgs/...`)은 저장소에 포함돼 있지 않습니다 — 직접 추가해야 드롭다운/목록에 아이콘이 보입니다.
