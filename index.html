@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>성유물 대장</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&family=Spectral+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>성유물 대장</h1>
+    <div class="sync-state" id="syncState">연결 확인 중…</div>
+  </header>
+
+  <div class="banner show" id="localBanner">이 브라우저에만 저장돼요. 다른 기기나 브라우저에서는 보이지 않으니, 가끔 JSON으로 백업해두는 걸 추천해요.</div>
+
+  <nav class="tabnav">
+    <button class="tab-btn active" data-tab="registry">성유물 대장</button>
+    <button class="tab-btn" data-tab="build">빌드 요약</button>
+    <button class="tab-btn" data-tab="reforge">재구축 추천</button>
+  </nav>
+
+  <div class="tab-panel" id="tab-registry">
+
+  <section class="card">
+    <h2 id="formTitle">새 성유물 등록</h2>
+
+    <div class="field">
+      <label for="slotKey">부위</label>
+      <select id="slotKey"></select>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label for="setKey">세트</label>
+        <select id="setKey"></select>
+      </div>
+      <div class="field">
+        <label for="location">장착 캐릭터</label>
+        <select id="location"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>주스탯 (풀강 고정값)</label>
+      <div id="mainStatDisplay" class="mainstat-display"></div>
+    </div>
+
+    <label style="display:block; font-size:12.5px; color:var(--ink-dim); margin: 16px 0 6px;">부옵션 (최대 4개)</label>
+    <div id="substatRows"></div>
+
+    <label class="checkline">
+      <input type="checkbox" id="startedWith4" checked />
+      4줄 시작
+    </label>
+
+    <div class="btnrow">
+      <button class="primary" id="saveBtn">성유물 등록</button>
+      <button class="ghost" id="cancelBtn" style="display:none;">수정 취소</button>
+    </div>
+    <div class="form-error" id="formError"></div>
+  </section>
+
+  <section class="card">
+    <h2>JSON으로 한번에 등록</h2>
+    <p class="reforge-note">객체 하나 또는 배열로 붙여넣으면 한 번에 여러 개 등록돼요. 주스탯·등급·레벨은 부위에 맞춰 자동으로 채워져요.</p>
+    <textarea id="jsonInput" class="json-input" rows="8" placeholder='[
+  {
+    "slotKey": "flower",
+    "setKey": "하늘 경계가 드러난 밤",
+    "location": "플린스",
+    "startedWith4Substats": true,
+    "substats": [
+      {"key": "critDMG_", "value": 24.9},
+      {"key": "critRate_", "value": 11.7},
+      {"key": "atk_", "value": 5.3},
+      {"key": "atk", "value": 14}
+    ]
+  }
+]'></textarea>
+    <div class="btnrow">
+      <button class="primary" id="jsonImportBtn">가져오기</button>
+    </div>
+    <div class="form-error" id="jsonError"></div>
+    <div class="json-result" id="jsonResult"></div>
+  </section>
+
+  <section class="card">
+    <h2>보유 성유물</h2>
+    <div id="listRoot"><div class="empty">등록된 성유물이 아직 없어요.</div></div>
+  </section>
+
+  </div>
+
+  <div class="tab-panel" id="tab-build" style="display:none;">
+
+  <section class="card">
+    <div class="field">
+      <label for="buildCharSelect">캐릭터</label>
+      <select id="buildCharSelect"></select>
+    </div>
+    <h2>부위별 성유물 선택</h2>
+    <div id="buildSlotSelectors"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="buildResultsTitle">빌드 결과</h2>
+    <div id="buildResults" class="build-results"></div>
+  </section>
+
+  </div>
+
+  <div class="tab-panel" id="tab-reforge" style="display:none;">
+
+  <section class="card">
+    <h2>재구축 우선순위</h2>
+    <p class="reforge-note">보유한 5★ · 풀강 성유물마다 재구축(치확+치피 우선) 시뮬레이션을 돌려서, "먼지 1개당 CV 기대 상승치"가 큰 순서로 정렬해요. 거부권이 있는 도박이라 하락분은 계산에서 빼요(기대이득 = E[max(0, 상승분)]).</p>
+
+    <div class="field">
+      <label for="dustSpentInput">현재 해석 진도 (다음 재구축 직전 기준, 0~17)</label>
+      <input type="number" id="dustSpentInput" min="0" max="17" step="1" value="0" />
+    </div>
+    <div class="pity-display" id="pityDisplay"></div>
+
+    <button class="primary" id="reforgeRunBtn" style="width:100%; margin: 12px 0 4px;">재구축 추천 계산하기</button>
+    <div id="reforgeResults"></div>
+  </section>
+
+  </div>
+
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
