@@ -396,11 +396,20 @@
   .reforge-item .rf-title { font-size: 14px; font-weight: 600; }
   .reforge-item .rf-title .icon { margin-right: 5px; }
   .reforge-item .rf-eff { font-size: 15px; font-weight: 600; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .reforge-item .rf-subs {
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    display: flex; flex-wrap: wrap; gap: 4px 10px;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 4px;
+  }
+  .reforge-item .rf-subs .crit { color: var(--wine); font-weight: 600; }
   .reforge-item .rf-detail {
     font-size: 12px; color: var(--ink-dim);
-    display: flex; flex-wrap: wrap; gap: 4px 12px;
+    display: flex; justify-content: space-between; align-items: baseline;
     font-variant-numeric: tabular-nums;
   }
+  .reforge-item .rf-priority { text-align: right; }
   .reforge-item.zero { opacity: 0.55; }
   .reforge-item .rf-badge {
     font-size: 10.5px;
