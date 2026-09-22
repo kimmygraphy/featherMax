@@ -764,6 +764,93 @@
     }
   }
 
+  // ---------- 호요랩 "캐릭터 정보" 화면 붙여넣기 파서 ----------
+  // 형식: <피스 이름> / Lv.NN / <주스탯 이름> / <주스탯 값> / (<부옵션 이름> / [강화횟수 숫자]? / <부옵션 값>) x N
+  // 강화횟수 배지는 항상 1~9 사이 "숫자 한 자리"뿐인 줄이라 이걸로 값 줄과 구분한다
+  // (부옵션 값은 아무리 작아도 두 자리 이상이거나 소수점/%가 붙어있어서 안 겹침).
+  function parseHoyolabPaste(text){
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const levelIdxs = [];
+    lines.forEach((l, i) => { if (/^Lv\.\d+$/.test(l)) levelIdxs.push(i); });
+
+    const items = [];
+    const errors = [];
+    const defaultLocation = STATE.buildCharacter || (CHARACTERS[0] && CHARACTERS[0].name) || OTHER_LOCATION;
+
+    levelIdxs.forEach((lvIdx, k) => {
+      const nameIdx = lvIdx - 1;
+      if (nameIdx < 0){ errors.push(`${k + 1}번째 항목: 이름 줄을 찾지 못했어요`); return; }
+      const name = lines[nameIdx];
+      const contentStart = lvIdx + 1;
+      const contentEnd = (k + 1 < levelIdxs.length) ? levelIdxs[k + 1] - 2 : lines.length - 1;
+      const content = lines.slice(contentStart, contentEnd + 1);
+
+      const reg = PIECE_NAME_REGISTRY[name];
+      if (!reg){
+        errors.push(`"${name}": 등록되지 않은 이름이에요 (수동으로 등록해주세요)`);
+        return;
+      }
+
+      // 앞 2줄은 주스탯 이름+값이라 건너뛰고, 그 뒤부터 부옵션을 반복해서 읽는다.
+      let idx = 2;
+      const substats = [];
+      while (idx < content.length && substats.length < 4){
+        const subName = content[idx]; idx++;
+        if (idx >= content.length) break;
+        if (/^[1-9]$/.test(content[idx])) idx++; // 강화횟수 배지(있으면) 건너뜀
+        if (idx >= content.length) break;
+        const rawVal = content[idx]; idx++;
+        const m = /^(-?\d+(?:\.\d+)?)(%)?$/.exec(rawVal);
+        if (!m) continue;
+        const isPct = !!m[2];
+        const num = parseFloat(m[1]);
+        const keyEntry = SUBSTAT_NAME_TO_KEY[subName];
+        const key = keyEntry ? (isPct ? keyEntry.pct : keyEntry.flat) : null;
+        if (key) substats.push({ key, value: num });
+      }
+
+      if (substats.length < 4){
+        errors.push(`"${name}": 부옵션을 ${substats.length}개만 인식했어요 (4개 필요)`);
+        return;
+      }
+
+      items.push({
+        slotKey: reg.slotKey,
+        setKey: reg.setKey,
+        location: defaultLocation,
+        startedWith4Substats: true,
+        substats,
+      });
+    });
+
+    if (!levelIdxs.length) errors.push("붙여넣은 텍스트에서 'Lv.NN' 줄을 찾지 못했어요 — 캐릭터 정보 화면의 성유물 부분을 그대로 복사했는지 확인해주세요.");
+
+    return { items, errors };
+  }
+
+  async function importFromHoyolab(){
+    const statusEl = $("hoyoStatus");
+    if (statusEl) statusEl.textContent = "";
+
+    const text = $("hoyoInput").value;
+    const { items, errors } = parseHoyolabPaste(text);
+
+    const btn = $("hoyoImportBtn");
+    if (btn) btn.disabled = true;
+    try {
+      for (const data of items) await createArtifactRecord(data);
+    } catch(e){
+      errors.push("저장 중 오류: " + (e && e.message ? e.message : e));
+    }
+    if (btn) btn.disabled = false;
+
+    const parts = [];
+    if (items.length) parts.push(`${items.length}개 등록 완료`);
+    if (errors.length) parts.push(...errors);
+    if (statusEl) statusEl.textContent = parts.join(" · ") || "인식된 성유물이 없어요.";
+    if (items.length && !errors.length) $("hoyoInput").value = "";
+  }
+
   // ---------- save / delete dispatch ----------
   async function saveArtifact(){
     clearFormError();
@@ -862,6 +949,7 @@
     });
     $("reforgeRunBtn").addEventListener("click", runReforgeRecommendation);
     $("jsonImportBtn").addEventListener("click", importFromJson);
+    $("hoyoImportBtn").addEventListener("click", importFromHoyolab);
     $("jsonExportBtnTop").addEventListener("click", exportJson);
     $("jsonExportBtnBottom").addEventListener("click", exportJson);
     $("dustSpentInput").addEventListener("change", () => {
