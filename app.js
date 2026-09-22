@@ -212,6 +212,15 @@
     return isPct ? (v.toFixed ? v.toFixed(1) : v) + "%" : (v.toFixed ? Math.round(v) : v);
   }
 
+  // 부옵션 4개를 "부옵1 부옵2 부옵3 부옵4" 형태로 렌더링 (치확/치피는 강조). 성유물 목록/재구축 추천에서 공용으로 씀.
+  function substatsLineHtml(substats){
+    const html = (substats || []).map(sub => {
+      const isCrit = sub.key === "critRate_" || sub.key === "critDMG_";
+      return `<span class="${isCrit ? "crit" : ""}">${SUBSTAT_LABELS[sub.key] || sub.key} ${fmtVal(sub.key, sub.value)}</span>`;
+    }).join("");
+    return html || '<span>부옵션 없음</span>';
+  }
+
   function renderList(){
     const root = $("listRoot");
     if (!STATE.artifacts.length){
@@ -232,16 +241,12 @@
       for (const a of items){
         const fixed = FIXED_MAIN_STATS[a.slotKey];
         const mainName = fixed ? fixed.label : a.mainStatKey;
-        const subsHtml = (a.substats || []).map(sub => {
-          const isCrit = sub.key === "critRate_" || sub.key === "critDMG_";
-          return `<span class="${isCrit ? "crit" : ""}">${SUBSTAT_LABELS[sub.key] || sub.key} ${fmtVal(sub.key, sub.value)}</span>`;
-        }).join("");
         html += `
           <div class="art-item" data-id="${a.id}">
             <div class="art-main">
               <div class="art-set">${a.setKey || "세트 미지정"} · ★${a.rarity || 5}</div>
               <div class="art-mainstat">${mainName} ${a.mainStatValue != null ? fmtVal(a.mainStatKey, a.mainStatValue) : ""}<span class="lvl">+${a.level != null ? a.level : 20}</span></div>
-              <div class="art-subs">${subsHtml || '<span>부옵션 없음</span>'}</div>
+              <div class="art-subs">${substatsLineHtml(a.substats)}</div>
               ${a.location ? `<div class="art-loc">장착 중 · ${escapeHtml(a.location)}</div>` : ""}
             </div>
             <div class="art-actions">
@@ -561,10 +566,10 @@
             <span class="rf-title">${title}${locBadge}${outBadge}</span>
             <span class="rf-eff">+${s.efficiency.toFixed(2)}/가루</span>
           </div>
+          <div class="rf-subs">${substatsLineHtml(s.art.substats)}</div>
           <div class="rf-detail">
             <span>현재 CV ${s.oldCV.toFixed(1)}</span>
-            <span>기대이득 +${s.expectedGain.toFixed(2)}</span>
-            <span>우선순위: ${s.priorityLabel}</span>
+            <span class="rf-priority">우선순위: ${s.priorityLabel}</span>
           </div>
         </div>`;
     };
