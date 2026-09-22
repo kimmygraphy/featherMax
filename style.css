@@ -365,6 +365,25 @@
     margin-top: 8px;
   }
 
+  .pity-banner {
+    color: var(--gold);
+    background: var(--panel-2);
+    border: 1px solid var(--gold-dim);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-weight: 600;
+  }
+
+  .reforge-table-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--ink-dim);
+    letter-spacing: 0.03em;
+    padding: 4px 2px 6px;
+    border-bottom: 1px solid var(--line);
+  }
+
   .reforge-item {
     border-top: 1px solid var(--line);
     padding: 12px 2px;
