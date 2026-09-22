@@ -1,11 +1,11 @@
 // data.js — 성유물/캐릭터 고정 데이터. 캐릭터를 추가하려면 CHARACTERS 배열에 객체를 더 넣으면 됨.
 
   const SLOTS = [
-    { key: "flower", label: "꽃", icon: "🌸" },
-    { key: "feather", label: "깃털", icon: "🪶" },
-    { key: "sands", label: "시계", icon: "⏳" },
-    { key: "goblet", label: "잔", icon: "🏆" },
-    { key: "circlet", label: "모자", icon: "👑" },
+    { key: "flower", label: "꽃", icon: "data/imgs/artifacts/flower.png" },
+    { key: "feather", label: "깃털", icon: "data/imgs/artifacts/feather.png" },
+    { key: "sands", label: "시계", icon: "data/imgs/artifacts/sands.png" },
+    { key: "goblet", label: "잔", icon: "data/imgs/artifacts/goblet.png" },
+    { key: "circlet", label: "모자", icon: "data/imgs/artifacts/circlet.png" },
   ];
   const SLOT_MAP = Object.fromEntries(SLOTS.map(s => [s.key, s]));
 
@@ -17,12 +17,18 @@
   const SUBSTAT_KEYS = Object.keys(SUBSTAT_LABELS);
 
   const SET_OPTIONS = ["하늘 경계가 드러난 밤", "오프셋"];
+  const OFFSET_ICON = "💬"; // 오프셋(및 미장착 '기타') 아이콘
+  const SET_ICONS = {
+    "하늘 경계가 드러난 밤": "data/imgs/artifacts/night.png",
+    "오프셋": OFFSET_ICON,
+  };
 
   // 캐릭터 레지스트리 — 나중에 캐릭터를 추가하려면 이 배열에 객체 하나만 더 넣으면 됨.
   // charBaseATK/charBaseCritDMG는 캐릭터 기초스탯(레벨 95), weaponBase*는 장착 무기 기초스탯(레벨 90) 기준.
   const CHARACTERS = [
     {
       name: "플린스",
+      icon: "data/imgs/characters/flins.png",
       charBaseATK: 391,
       charBaseCritDMG: 88.4,
       weaponBaseATK: 674,
@@ -33,6 +39,12 @@
   const OTHER_LOCATION = "기타";
   const LOCATION_OPTIONS = [...CHARACTERS.map(c => c.name), OTHER_LOCATION];
   function getCharacter(name){ return CHARACTERS.find(c => c.name === name) || CHARACTERS[0] || null; }
+  // 장착 캐릭터 드롭다운/뱃지에 쓰는 아이콘. '기타'는 오프셋과 동일한 아이콘을 씀.
+  function getLocationIcon(name){
+    if (name === OTHER_LOCATION) return OFFSET_ICON;
+    const c = getCharacter(name);
+    return c ? c.icon : OFFSET_ICON;
+  }
 
   // 풀강(+20) 5성 성유물은 부위별 주스탯이 사실상 고정값이라 입력받지 않고 바로 계산한다.
   const FIXED_MAIN_STATS = {
