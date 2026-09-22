@@ -111,6 +111,55 @@
   }
   input::placeholder { color: var(--ink-dim); opacity: 0.7; }
 
+  /* 이미지 아이콘이 붙은 커스텀 드롭다운 (네이티브 select는 옵션 안에 이미지를 못 넣어서 직접 구현) */
+  .icon-img {
+    width: 1.2em;
+    height: 1.2em;
+    object-fit: contain;
+    flex-shrink: 0;
+    vertical-align: -0.25em;
+  }
+  .icon-emoji { flex-shrink: 0; }
+
+  .icon-select { position: relative; }
+  .icon-select-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--ink);
+    padding: 9px 10px;
+    font-size: 14.5px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .icon-select-btn:focus { outline: 2px solid var(--gold-dim); outline-offset: -1px; }
+  .icon-select-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .icon-select-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .icon-select-option:hover { background: var(--panel); }
+
   .substat-row {
     display: grid;
     grid-template-columns: 1.4fr 1fr;
@@ -307,16 +356,6 @@
     color: var(--good);
     margin-top: 8px;
   }
-
-  .pity-display {
-    font-size: 12.5px;
-    color: var(--ink-dim);
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    margin-bottom: 4px;
-  }
-  .pity-display .num { color: var(--gold); font-weight: 600; }
 
   .reforge-item {
     border-top: 1px solid var(--line);
