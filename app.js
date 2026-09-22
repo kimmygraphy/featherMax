@@ -7,6 +7,7 @@
     artifacts: [],
     buildSelection: { flower: "", feather: "", sands: "", goblet: "", circlet: "" },
     buildCharacter: CHARACTERS[0] ? CHARACTERS[0].name : null,
+    buildCharLevel: DEFAULT_CHAR_LEVEL,
   };
 
   // ---------- form setup ----------
@@ -309,6 +310,13 @@
     setFieldValue("buildCharSelect", STATE.buildCharacter);
   }
 
+  function populateBuildCharLevelSelect(){
+    const sel = $("buildCharLevel");
+    if (!sel) return;
+    sel.innerHTML = CHAR_LEVEL_OPTIONS.map(l => `<option value="${l}">${l}</option>`).join("");
+    sel.value = STATE.buildCharLevel;
+  }
+
   function renderBuildSelectors(){
     const root = $("buildSlotSelectors");
     if (!root) return;
@@ -355,11 +363,13 @@
 
     const char = getCharacter(STATE.buildCharacter);
     const titleEl = $("buildResultsTitle");
-    if (titleEl) titleEl.textContent = char ? `${char.name} 최종스펙` : "캐릭터 최종스펙";
+    if (titleEl) titleEl.textContent = "최종 스펙";
     if (!char){
       resultsEl.innerHTML = `<div class="empty">등록된 캐릭터가 없어요.</div>`;
       return;
     }
+    const level = STATE.buildCharLevel || DEFAULT_CHAR_LEVEL;
+    const charBaseATK = char.atkByLevel[level] != null ? char.atkByLevel[level] : Object.values(char.atkByLevel)[0];
 
     const chosen = SLOTS.map(s => STATE.artifacts.find(a => a.id === STATE.buildSelection[s.key])).filter(Boolean);
 
@@ -377,7 +387,7 @@
       }
     }
 
-    const finalATK = (char.charBaseATK + char.weaponBaseATK) * (1 + atkPercentSum / 100) + atkFlatSum;
+    const finalATK = (charBaseATK + char.weaponBaseATK) * (1 + atkPercentSum / 100) + atkFlatSum;
     const finalCritRate = UNIVERSAL_BASE_CRIT_RATE + char.weaponBaseCritRate + critRateSum;
     const finalCritDMG = char.charBaseCritDMG + critDmgSum;
     const cv = 2 * finalCritRate + finalCritDMG;
@@ -394,7 +404,7 @@
       <div class="stat-line headline"><span>CV (2×치확+치피)</span><span class="v">${cv.toFixed(1)}</span></div>
       <div class="stat-line"><span>성유물 공격력% 합</span><span class="v">${atkPercentSum.toFixed(1)}%</span></div>
       <div class="stat-line"><span>성유물 깡공 합</span><span class="v">${Math.round(atkFlatSum)}</span></div>
-      <div class="sub-note">${chosen.length}/5부위 선택됨 · 캐릭터 Lv.95 + 무기 Lv.90 기초스탯 기준</div>
+      <div class="sub-note">${chosen.length}/5부위 선택됨 · 캐릭터 Lv.${level} · 전용 무기 Lv.90 기준</div>
     `;
   }
 
@@ -588,11 +598,7 @@
   }
 
   // ---------- storage backend (브라우저 로컬저장소 전용) ----------
-  function setSyncState(){
-    const el = $("syncState");
-    el.textContent = "이 브라우저에만 저장";
-    el.className = "sync-state warn";
-  }
+  function setSyncState(){}
 
   function localCollectionKey(){ return "artifactLedger.items"; }
 
@@ -721,11 +727,9 @@
 
   // 보유 성유물 전체를 "JSON으로 한번에 등록" 입력창과 동일한 스키마로 내보낸다.
   function exportJson(){
-    const resEl = $("jsonResult");
-    const errEl = $("jsonError");
-    errEl.textContent = "";
-    errEl.classList.remove("show");
+    const statusEl = $("exportStatus");
 
+    // "보유 성유물"로 등록된 실제 데이터(STATE.artifacts)만 내보낸다. 가져오기 입력창 내용과는 무관.
     const data = STATE.artifacts.map(a => ({
       slotKey: a.slotKey,
       setKey: a.setKey,
@@ -745,10 +749,9 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      resEl.textContent = `${data.length}개 내보냄 (artifacts-export.json 다운로드됨)`;
+      if (statusEl) statusEl.textContent = `${data.length}개 내보냄 (artifacts-export.json 다운로드됨)`;
     } catch(e){
-      errEl.textContent = "파일 다운로드를 지원하지 않는 환경이에요. 대신 아래 입력창에 붙여넣었어요.";
-      errEl.classList.add("show");
+      if (statusEl) statusEl.textContent = "파일 다운로드를 지원하지 않는 환경이에요. 대신 '가져오기' 입력창에 붙여넣었어요.";
       $("jsonInput").value = json;
     }
   }
@@ -845,9 +848,14 @@
       renderBuildSelectors();
       computeBuild();
     });
+    $("buildCharLevel").addEventListener("change", () => {
+      STATE.buildCharLevel = $("buildCharLevel").value;
+      computeBuild();
+    });
     $("reforgeRunBtn").addEventListener("click", runReforgeRecommendation);
     $("jsonImportBtn").addEventListener("click", importFromJson);
-    $("jsonExportBtn").addEventListener("click", exportJson);
+    $("jsonExportBtnTop").addEventListener("click", exportJson);
+    $("jsonExportBtnBottom").addEventListener("click", exportJson);
     $("dustSpentInput").addEventListener("change", () => {
       let v = parseInt($("dustSpentInput").value, 10) || 0;
       v = ((v % 18) + 18) % 18;
@@ -862,6 +870,7 @@
   populateSetSelect();
   populateLocationSelect();
   populateBuildCharSelect();
+  populateBuildCharLevelSelect();
   updateMainStatDisplay();
   renderSubstatRows([]);
   bindEvents();
