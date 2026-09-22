@@ -12,17 +12,80 @@
   // ---------- form setup ----------
   const $ = (id) => document.getElementById(id);
 
+  // icon이 이미지 경로면 <img>, 아니면(이모지 등) 그대로 텍스트로 렌더링.
+  function iconMarkup(icon){
+    if (!icon) return "";
+    if (/\.(png|jpe?g|svg|webp)$/i.test(icon)) return `<img class="icon-img" src="${icon}" alt="" />`;
+    return `<span class="icon-emoji">${icon}</span>`;
+  }
+
+  // 네이티브 <select>는 옵션 안에 이미지를 못 넣어서, 아이콘+라벨을 보여주는 커스텀 드롭다운을 직접 구현.
+  // 실제 값은 hiddenId를 id로 갖는 숨김 input에 저장되고, change 이벤트도 그대로 dispatch되므로
+  // 기존에 $("slotKey") 등으로 값을 읽던 코드는 그대로 동작한다.
+  const ICON_SELECT_REGISTRY = {};
+
+  function mountIconSelect(containerId, hiddenId, options){
+    const container = $(containerId);
+    if (!container) return;
+    container.innerHTML = `
+      <button type="button" class="icon-select-btn"></button>
+      <div class="icon-select-menu" hidden></div>
+    `;
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.id = hiddenId;
+    container.appendChild(hidden);
+
+    const btn = container.querySelector(".icon-select-btn");
+    const menu = container.querySelector(".icon-select-menu");
+
+    function renderBtn(value){
+      const opt = options.find(o => o.value === value) || options[0];
+      btn.innerHTML = opt ? `${iconMarkup(opt.icon)}<span>${escapeHtml(opt.label)}</span>` : "";
+    }
+    menu.innerHTML = options.map(o =>
+      `<div class="icon-select-option" data-value="${escapeHtml(o.value)}">${iconMarkup(o.icon)}<span>${escapeHtml(o.label)}</span></div>`
+    ).join("");
+    hidden.value = options[0] ? options[0].value : "";
+    renderBtn(hidden.value);
+
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".icon-select-menu").forEach(m => { if (m !== menu) m.hidden = true; });
+      menu.hidden = !menu.hidden;
+    });
+    menu.addEventListener("click", (e) => {
+      const opt = e.target.closest(".icon-select-option");
+      if (!opt) return;
+      hidden.value = opt.dataset.value;
+      renderBtn(hidden.value);
+      menu.hidden = true;
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    ICON_SELECT_REGISTRY[hiddenId] = { setValue(v){ hidden.value = v; renderBtn(v); } };
+  }
+
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".icon-select-menu").forEach(m => m.hidden = true);
+  });
+
+  // $("slotKey").value = X 대신 이 헬퍼로 값을 바꾸면, 커스텀 드롭다운 버튼 표시도 같이 갱신된다.
+  function setFieldValue(id, value){
+    if (ICON_SELECT_REGISTRY[id]) ICON_SELECT_REGISTRY[id].setValue(value);
+    else { const el = $(id); if (el) el.value = value; }
+  }
+
   function populateSlotSelect(){
-    const sel = $("slotKey");
-    sel.innerHTML = SLOTS.map(s => `<option value="${s.key}">${s.icon} ${s.label}</option>`).join("");
+    mountIconSelect("slotKeyField", "slotKey", SLOTS.map(s => ({ value: s.key, label: s.label, icon: s.icon })));
   }
 
   function populateSetSelect(){
-    $("setKey").innerHTML = SET_OPTIONS.map(s => `<option value="${s}">${s}</option>`).join("");
+    mountIconSelect("setKeyField", "setKey", SET_OPTIONS.map(s => ({ value: s, label: s, icon: SET_ICONS[s] })));
   }
 
   function populateLocationSelect(){
-    $("location").innerHTML = LOCATION_OPTIONS.map(l => `<option value="${l}">${l}</option>`).join("");
+    mountIconSelect("locationField", "location", LOCATION_OPTIONS.map(l => ({ value: l, label: l, icon: getLocationIcon(l) })));
   }
 
   function updateMainStatDisplay(){
@@ -120,10 +183,10 @@
     $("formTitle").textContent = "새 성유물 등록";
     $("saveBtn").textContent = "성유물 등록";
     $("cancelBtn").style.display = "none";
-    $("slotKey").value = preserveSlot || "flower";
+    setFieldValue("slotKey", preserveSlot || "flower");
     updateMainStatDisplay();
-    $("setKey").value = SET_OPTIONS[0];
-    $("location").value = LOCATION_OPTIONS[0];
+    setFieldValue("setKey", SET_OPTIONS[0]);
+    setFieldValue("location", LOCATION_OPTIONS[0]);
     $("startedWith4").checked = true;
     renderSubstatRows([]);
   }
@@ -133,10 +196,10 @@
     $("formTitle").textContent = "성유물 수정";
     $("saveBtn").textContent = "수정 완료";
     $("cancelBtn").style.display = "";
-    $("slotKey").value = art.slotKey;
+    setFieldValue("slotKey", art.slotKey);
     updateMainStatDisplay();
-    $("setKey").value = SET_OPTIONS.includes(art.setKey) ? art.setKey : SET_OPTIONS[0];
-    $("location").value = LOCATION_OPTIONS.includes(art.location) ? art.location : LOCATION_OPTIONS[1];
+    setFieldValue("setKey", SET_OPTIONS.includes(art.setKey) ? art.setKey : SET_OPTIONS[0]);
+    setFieldValue("location", LOCATION_OPTIONS.includes(art.location) ? art.location : OTHER_LOCATION);
     $("startedWith4").checked = !!art.startedWith4Substats;
     renderSubstatRows(art.substats || []);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -164,7 +227,7 @@
     for (const s of SLOTS){
       const items = bySlot[s.key] || [];
       if (!items.length) continue;
-      html += `<div class="slot-group"><h3><span class="icon">${s.icon}</span>${s.label} · ${items.length}개</h3>`;
+      html += `<div class="slot-group"><h3>${iconMarkup(s.icon)}${s.label} · ${items.length}개</h3>`;
       for (const a of items){
         const fixed = FIXED_MAIN_STATS[a.slotKey];
         const mainName = fixed ? fixed.label : a.mainStatKey;
@@ -241,10 +304,9 @@
   }
 
   function populateBuildCharSelect(){
-    const sel = $("buildCharSelect");
-    if (!sel) return;
-    sel.innerHTML = CHARACTERS.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join("");
-    sel.value = STATE.buildCharacter;
+    if (!$("buildCharSelectField")) return;
+    mountIconSelect("buildCharSelectField", "buildCharSelect", CHARACTERS.map(c => ({ value: c.name, label: c.name, icon: c.icon })));
+    setFieldValue("buildCharSelect", STATE.buildCharacter);
   }
 
   function renderBuildSelectors(){
@@ -274,7 +336,7 @@
       ).join("");
       html += `
         <div class="build-row">
-          <span class="icon">${s.icon}</span>
+          <span class="icon">${iconMarkup(s.icon)}</span>
           <select class="build-slot-select" data-slot="${s.key}" ${!items.length ? "disabled" : ""}>${options}</select>
         </div>`;
     }
@@ -293,7 +355,7 @@
 
     const char = getCharacter(STATE.buildCharacter);
     const titleEl = $("buildResultsTitle");
-    if (titleEl) titleEl.textContent = char ? `${char.name} 빌드 결과` : "빌드 결과";
+    if (titleEl) titleEl.textContent = char ? `${char.name} 최종스펙` : "캐릭터 최종스펙";
     if (!char){
       resultsEl.innerHTML = `<div class="empty">등록된 캐릭터가 없어요.</div>`;
       return;
@@ -351,14 +413,8 @@
     return 2;
   }
 
-  function updatePityDisplay(){
-    const progress = parseInt($("dustSpentInput").value, 10) || 0;
-    const g1 = calcGuaranteedRolls(progress, 1);
-    const g2 = calcGuaranteedRolls(progress, 2);
-    $("pityDisplay").innerHTML =
-      `꽃/깃(먼지 1개) 재구축 시: <span class="num">${g1}개</span> 보장 · ` +
-      `시계/성배/모자(먼지 2개) 재구축 시: <span class="num">${g2}개</span> 보장`;
-  }
+  // 보장 롤 미리보기 UI는 뺐지만, calcGuaranteedRolls 자체는 runReforgeRecommendation에서 계속 쓰임.
+  function updatePityDisplay(){}
 
   // ---------- reforge simulation ----------
   // 부옵션 4개(존재하는 타입) 중, 치확/치피가 하나라도 있는 성유물만 재구축 의미가 있다.
@@ -479,7 +535,7 @@
 
     const renderItem = (s, outOfSet) => {
       const slot = SLOT_MAP[s.art.slotKey];
-      const title = `${slot ? slot.icon + " " : ""}${slot ? slot.label : s.art.slotKey} · ${s.art.setKey || "세트 미지정"}`;
+      const title = `${slot ? iconMarkup(slot.icon) : ""}${slot ? slot.label : s.art.slotKey} · ${s.art.setKey || "세트 미지정"}`;
       const locBadge = s.art.location ? `<span class="rf-badge">${escapeHtml(s.art.location)}</span>` : "";
       const outBadge = outOfSet ? `<span class="rf-badge">세트 밖</span>` : "";
       if (s.skip){
@@ -518,7 +574,7 @@
       html += `<p class="reforge-note" style="margin-top:16px;">세트 밖 성유물 (참고용 — 재구축 계산은 생략했어요. 실제로 낄 계획이면 다른 부위 세트도 같이 바꿔야 해요)</p>`;
       html += outSet.map(a => {
         const slot = SLOT_MAP[a.slotKey];
-        const title = `${slot ? slot.icon + " " : ""}${slot ? slot.label : a.slotKey} · ${a.setKey || "세트 미지정"}`;
+        const title = `${slot ? iconMarkup(slot.icon) : ""}${slot ? slot.label : a.slotKey} · ${a.setKey || "세트 미지정"}`;
         const locBadge = a.location ? `<span class="rf-badge">${escapeHtml(a.location)}</span>` : "";
         return `
           <div class="reforge-item zero">
@@ -590,7 +646,7 @@
     const setKey = item && item.setKey;
     if (!SET_OPTIONS.includes(setKey)) errors.push(`#${idx + 1}: setKey는 "${SET_OPTIONS.join('" / "')}" 중 하나여야 해요`);
 
-    const location = LOCATION_OPTIONS.includes(item && item.location) ? item.location : LOCATION_OPTIONS[1];
+    const location = LOCATION_OPTIONS.includes(item && item.location) ? item.location : OTHER_LOCATION;
     const startedWith4Substats = (item && item.startedWith4Substats) !== false;
 
     const rawSubs = Array.isArray(item && item.substats) ? item.substats : [];
@@ -660,6 +716,40 @@
     if (errors.length){
       errEl.innerHTML = errors.map(escapeHtml).join("<br>");
       errEl.classList.add("show");
+    }
+  }
+
+  // 보유 성유물 전체를 "JSON으로 한번에 등록" 입력창과 동일한 스키마로 내보낸다.
+  function exportJson(){
+    const resEl = $("jsonResult");
+    const errEl = $("jsonError");
+    errEl.textContent = "";
+    errEl.classList.remove("show");
+
+    const data = STATE.artifacts.map(a => ({
+      slotKey: a.slotKey,
+      setKey: a.setKey,
+      location: a.location,
+      startedWith4Substats: !!a.startedWith4Substats,
+      substats: (a.substats || []).map(s => ({ key: s.key, value: s.value })),
+    }));
+    const json = JSON.stringify(data, null, 2);
+
+    try {
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "artifacts-export.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      resEl.textContent = `${data.length}개 내보냄 (artifacts-export.json 다운로드됨)`;
+    } catch(e){
+      errEl.textContent = "파일 다운로드를 지원하지 않는 환경이에요. 대신 아래 입력창에 붙여넣었어요.";
+      errEl.classList.add("show");
+      $("jsonInput").value = json;
     }
   }
 
@@ -757,6 +847,7 @@
     });
     $("reforgeRunBtn").addEventListener("click", runReforgeRecommendation);
     $("jsonImportBtn").addEventListener("click", importFromJson);
+    $("jsonExportBtn").addEventListener("click", exportJson);
     $("dustSpentInput").addEventListener("change", () => {
       let v = parseInt($("dustSpentInput").value, 10) || 0;
       v = ((v % 18) + 18) % 18;
