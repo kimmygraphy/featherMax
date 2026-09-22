@@ -23,6 +23,27 @@
     "오프셋": OFFSET_ICON,
   };
 
+  // 호요랩 "캐릭터 정보" 화면을 통째로 복사-붙여넣기 했을 때, 성유물 개별 이름만 보고
+  // 부위/세트를 자동으로 알아내기 위한 사전. 새 세트나 이름을 알게 되면 한 줄만 추가하면 됨.
+  const PIECE_NAME_REGISTRY = {
+    "진실 갈망의 꽃": { slotKey: "flower", setKey: "하늘 경계가 드러난 밤" },
+    "깊은 죄의 깃털": { slotKey: "feather", setKey: "하늘 경계가 드러난 밤" },
+    "눈 덮인 고향의 최후": { slotKey: "sands", setKey: "하늘 경계가 드러난 밤" },
+    "넘치는 술잔": { slotKey: "goblet", setKey: "하늘 경계가 드러난 밤" },
+    "영겁의 왕관": { slotKey: "circlet", setKey: "하늘 경계가 드러난 밤" },
+  };
+
+  // 붙여넣기 텍스트의 부옵션 이름 → {flat, pct} 키. 값에 %가 붙어있는지로 flat/pct를 가른다.
+  const SUBSTAT_NAME_TO_KEY = {
+    "HP": { flat: "hp", pct: "hp_" },
+    "공격력": { flat: "atk", pct: "atk_" },
+    "방어력": { flat: "def", pct: "def_" },
+    "원소 마스터리": { flat: "em", pct: "em" },
+    "원소 충전 효율": { flat: "er_", pct: "er_" },
+    "치명타 확률": { flat: "critRate_", pct: "critRate_" },
+    "치명타 피해": { flat: "critDMG_", pct: "critDMG_" },
+  };
+
   // 캐릭터 레지스트리 — 나중에 캐릭터를 추가하려면 이 배열에 객체 하나만 더 넣으면 됨.
   // 캐릭터 레벨(돌파 단계) 선택지 — 순서대로 드롭다운에 표시됨.
   const CHAR_LEVEL_OPTIONS = ["80/80", "80/90", "90", "95", "100"];
