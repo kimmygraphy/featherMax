@@ -71,96 +71,88 @@
   <div class="tab-panel" id="tab-registry">
 
   <section class="card">
-    <h2 id="formTitle">새 성유물 등록</h2>
+    <h2 id="formTitle">성유물 등록</h2>
+    <nav class="sub-tabnav">
+      <button class="sub-tab-btn active" data-subtab="manual">수동으로 등록</button>
+      <button class="sub-tab-btn" data-subtab="hoyo">호요랩으로 등록</button>
+      <button class="sub-tab-btn" data-subtab="json">JSON으로 등록</button>
+    </nav>
 
-    <div class="field">
-      <label>부위</label>
-      <div class="icon-select" id="slotKeyField"></div>
-    </div>
+    <div class="sub-tab-panel" id="subtab-manual">
+      <div class="field">
+        <label>부위</label>
+        <div class="icon-select" id="slotKeyField"></div>
+      </div>
 
-    <div class="row2">
       <div class="field">
         <label>세트</label>
         <div class="icon-select" id="setKeyField"></div>
       </div>
-      <div class="field">
+      <div class="field" style="margin-bottom:16px;">
         <label>장착 캐릭터</label>
         <div class="icon-select" id="locationField"></div>
       </div>
+
+      <div class="field">
+        <label>주스탯</label>
+        <div id="mainStatDisplay" class="mainstat-display"></div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin: 16px 0 6px;">
+        <label style="font-size:12.5px; color:var(--ink-dim); margin:0;">부옵션 (최대 4개)</label>
+        <button class="ghost small" id="resetSubstatsBtn" type="button">부옵션 초기화</button>
+      </div>
+      <div id="substatRows"></div>
+
+      <label class="checkline">
+        <input type="checkbox" id="startedWith4" checked />
+        4줄 시작
+      </label>
+
+      <div class="btnrow">
+        <button class="primary" id="saveBtn">성유물 등록</button>
+        <button class="ghost" id="cancelBtn" style="display:none;">수정 취소</button>
+      </div>
+      <div class="form-error" id="formError"></div>
+      <div class="form-success" id="formSuccess"></div>
     </div>
 
-    <div class="field">
-      <label>주스탯 (풀강 고정값)</label>
-      <div id="mainStatDisplay" class="mainstat-display"></div>
+    <div class="sub-tab-panel" id="subtab-hoyo" style="display:none;">
+      <textarea id="hoyoInput" class="json-input" rows="8"></textarea>
+      <div class="btnrow">
+        <button class="primary" id="hoyoParseBtn">인식하기</button>
+      </div>
+      <div class="form-error" id="hoyoError"></div>
+      <div id="hoyoPreview" style="display:none;">
+        <div id="hoyoPreviewList"></div>
+        <div class="btnrow" style="margin-top:12px;">
+          <button class="primary" id="hoyoSaveBtn">저장하기</button>
+          <button class="ghost" id="hoyoCancelBtn">취소</button>
+        </div>
+      </div>
+      <div class="json-result" id="hoyoStatus"></div>
     </div>
 
-    <label style="display:block; font-size:12.5px; color:var(--ink-dim); margin: 16px 0 6px;">부옵션 (최대 4개)</label>
-    <div id="substatRows"></div>
-
-    <label class="checkline">
-      <input type="checkbox" id="startedWith4" checked />
-      4줄 시작
-    </label>
-
-    <div class="btnrow">
-      <button class="primary" id="saveBtn">성유물 등록</button>
-      <button class="ghost" id="cancelBtn" style="display:none;">수정 취소</button>
+    <div class="sub-tab-panel" id="subtab-json" style="display:none;">
+      <textarea id="jsonInput" class="json-input" rows="8"></textarea>
+      <div class="btnrow">
+        <button class="primary" id="jsonImportBtn">가져오기</button>
+      </div>
+      <div class="form-error" id="jsonError"></div>
+      <div class="json-result" id="jsonResult"></div>
     </div>
-    <div class="form-error" id="formError"></div>
-  </section>
-
-  <section class="card">
-    <h2>호요랩 붙여넣기로 등록</h2>
-    <p class="reforge-note">호요랩 "캐릭터 정보" 화면에서 성유물 부분을 통째로 복사해서 그대로 붙여넣으면 자동으로 인식해서 등록해요. 장착 캐릭터는 지금 "캐릭터 스펙" 탭에서 고른 캐릭터로 채워져요.</p>
-    <textarea id="hoyoInput" class="json-input" rows="8" placeholder="진실 갈망의 꽃
-Lv.20 
-HP
-4780
-공격력
-14
-치명타 피해
-3
-24.9%
-...
-(캐릭터 정보 화면 통째로 복사해서 붙여넣기)"></textarea>
-    <div class="btnrow">
-      <button class="primary" id="hoyoImportBtn">붙여넣기로 등록</button>
-    </div>
-    <div class="json-result" id="hoyoStatus"></div>
-  </section>
-
-  <section class="card">
-    <h2>JSON으로 한번에 등록</h2>
-    <textarea id="jsonInput" class="json-input" rows="8" placeholder='[
-  {
-    "slotKey": "flower",
-    "setKey": "하늘 경계가 드러난 밤",
-    "location": "플린스",
-    "startedWith4Substats": true,
-    "substats": [
-      {"key": "critDMG_", "value": 24.9},
-      {"key": "critRate_", "value": 11.7},
-      {"key": "atk_", "value": 5.3},
-      {"key": "atk", "value": 14}
-    ]
-  }
-]'></textarea>
-    <div class="btnrow">
-      <button class="primary" id="jsonImportBtn">가져오기</button>
-    </div>
-    <div class="form-error" id="jsonError"></div>
-    <div class="json-result" id="jsonResult"></div>
   </section>
 
   <section class="card">
     <div class="section-header-row">
       <h2>보유 성유물</h2>
-      <button class="ghost" id="jsonExportBtnTop">내보내기</button>
+      <div style="display:flex; gap:6px;">
+        <button class="ghost small" id="jsonCopyBtn">목록 복사</button>
+        <button class="ghost small" id="jsonExportBtn">목록 내보내기</button>
+        <button class="ghost small" style="color:var(--wine); border-color:var(--wine-dim);" id="clearAllBtn">비우기</button>
+      </div>
     </div>
     <div id="listRoot"><div class="empty">등록된 성유물이 아직 없어요.</div></div>
-    <div class="btnrow-right">
-      <button class="ghost" id="jsonExportBtnBottom">내보내기</button>
-    </div>
     <div class="json-result" id="exportStatus"></div>
   </section>
 
