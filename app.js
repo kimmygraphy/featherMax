@@ -829,10 +829,37 @@
     });
   }
 
-  // 신규 성유물 1건을 로그인한 사용자의 Firestore 문서로 기록한다. saveArtifact와 JSON 일괄 등록이 공유한다.
+  // 신규 성유물 1건을 로그인한 사용자의 Firestore 문서로 기록한다. saveArtifact와 호요랩 등록이 쓴다.
   async function createArtifactRecord(data){
     data.createdAt = Date.now();
     await artifactsCollection().add(data);
+  }
+
+  // 대량 쓰기: Firestore writeBatch는 1회 500건 제한이라 500건 단위로 끊어 커밋한다.
+  async function batchCreateArtifacts(items){
+    const BATCH_SIZE = 500;
+    const col = artifactsCollection();
+    for (let i = 0; i < items.length; i += BATCH_SIZE){
+      const batch = fbDb.batch();
+      const chunk = items.slice(i, i + BATCH_SIZE);
+      for (const data of chunk){
+        data.createdAt = Date.now();
+        batch.set(col.doc(), data);
+      }
+      await batch.commit();
+    }
+  }
+
+  // 대량 삭제: 위와 동일하게 500건 단위 batch delete.
+  async function batchDeleteArtifacts(ids){
+    const BATCH_SIZE = 500;
+    const col = artifactsCollection();
+    for (let i = 0; i < ids.length; i += BATCH_SIZE){
+      const batch = fbDb.batch();
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      for (const id of chunk) batch.delete(col.doc(id));
+      await batch.commit();
+    }
   }
 
   // 붙여넣은 JSON 한 건을 저장 가능한 형태로 검증/정규화한다.
@@ -913,7 +940,7 @@
     });
 
     try {
-      for (const data of toAdd) await createArtifactRecord(data);
+      await batchCreateArtifacts(toAdd);
     } catch(e){
       errors.push("저장 중 오류: " + (e && e.message ? e.message : e));
     }
@@ -971,12 +998,12 @@
     }
   }
 
-  // #14: 보유 성유물 전체 삭제
+  // #14: 보유 성유물 전체 삭제 (batch)
   async function clearAllArtifacts(){
     if (!STATE.artifacts.length) return;
     if (!confirm("정말 비우시겠습니까?")) return;
     try {
-      for (const a of STATE.artifacts) await artifactsCollection().doc(a.id).delete();
+      await batchDeleteArtifacts(STATE.artifacts.map(a => a.id));
     } catch(e){
       alert("삭제 중 오류: " + (e && e.message ? e.message : e));
     }
@@ -1125,31 +1152,38 @@
     showHoyoPreview(items);
   }
 
-  // Step 2: 저장하기 — 사용자가 세트를 지정한 후 실제 저장
+  // Step 2: 저장하기 — 사용자가 세트를 지정한 후 실제 저장 (batch)
   async function saveHoyoPreview(){
     const rows = Array.from(document.querySelectorAll("#hoyoPreviewList .hoyo-preview-item"));
     const statusEl = $("hoyoStatus");
     const btn = $("hoyoSaveBtn");
     btn.disabled = true;
 
-    const errors = [];
-    let saved = 0;
+    const toAdd = [];
     for (let i = 0; i < rows.length; i++){
       const item = hoyoParsedItems[i];
       if (!item) continue;
       const setKey = rows[i].querySelector(".hoyo-set-select").value;
-      const data = {
+      toAdd.push({
         slotKey: item.slotKey, rarity: item.rarity, setKey, level: item.level,
         location: item.location, mainStatKey: item.mainStatKey, mainStatValue: item.mainStatValue,
         substats: item.substats, startedWith4Substats: item.startedWith4Substats,
-      };
-      try { await createArtifactRecord(data); saved++; }
-      catch(e){ errors.push(`${item.name}: 저장 오류 — ${e && e.message ? e.message : e}`); }
+      });
+    }
+
+    const errors = [];
+    try {
+      await batchCreateArtifacts(toAdd);
+    } catch(e){
+      errors.push("저장 중 오류: " + (e && e.message ? e.message : e));
     }
 
     btn.disabled = false;
     hideHoyoPreview();
-    if (saved){ if (statusEl) statusEl.textContent = `${saved}개 등록 완료`; $("hoyoInput").value = ""; }
+    if (toAdd.length && !errors.length){
+      if (statusEl) statusEl.textContent = `${toAdd.length}개 등록 완료`;
+      $("hoyoInput").value = "";
+    }
     if (errors.length){
       const errEl = $("hoyoError");
       errEl.innerHTML = errors.map(escapeHtml).join("<br>");
