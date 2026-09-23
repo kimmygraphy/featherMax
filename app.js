@@ -636,6 +636,7 @@
 
   // ---------- Firebase Auth + Firestore storage ----------
   let fbApp = null, fbAuth = null, fbDb = null, artifactsUnsub = null;
+  let authMode = "login"; // "login" | "signup"
 
   function firebaseConfigured(){
     return typeof firebaseConfig !== "undefined" && firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
@@ -658,36 +659,66 @@
   function validUsername(u){ return /^[a-zA-Z0-9_]{3,20}$/.test(u); }
 
   const AUTH_ERROR_MESSAGES = {
-    "auth/email-already-in-use": "이미 있는 아이디예요.",
+    "auth/email-already-in-use": "이미 존재하는 ID입니다",
     "auth/weak-password": "비밀번호는 6자 이상이어야 해요.",
-    "auth/user-not-found": "존재하지 않는 아이디예요.",
-    "auth/wrong-password": "비밀번호가 틀렸어요.",
+    "auth/user-not-found": "등록되지 않은 ID입니다",
+    "auth/wrong-password": "비밀번호가 맞지 않습니다",
     "auth/invalid-email": "아이디 형식이 올바르지 않아요.",
-    "auth/invalid-credential": "아이디 또는 비밀번호가 올바르지 않아요.",
+    // Firebase 프로젝트에서 "이메일 열거 보호(email enumeration protection)"가 켜져 있으면
+    // 존재하지 않는 아이디/틀린 비밀번호 둘 다 이 코드 하나로 내려옵니다 (구분 불가).
+    // 콘솔의 Authentication > Settings에서 해당 옵션을 끄면 위의 user-not-found / wrong-password로 세분화됩니다.
+    "auth/invalid-credential": "등록되지 않은 ID이거나 비밀번호가 맞지 않습니다",
     "auth/too-many-requests": "시도가 너무 많아요. 잠시 후 다시 시도해주세요.",
   };
   function authErrorMessage(e){ return AUTH_ERROR_MESSAGES[e && e.code] || ("오류: " + (e && e.message ? e.message : e)); }
 
+  function setAuthError(msg){
+    const el = $("authError");
+    el.textContent = msg || "";
+    el.classList.toggle("show", !!msg);
+  }
+
+  function setAuthMode(mode){
+    authMode = mode;
+    setAuthError("");
+    $("authPasswordConfirmField").style.display = mode === "signup" ? "" : "none";
+    $("authLoginBtns").style.display = mode === "login" ? "" : "none";
+    $("authSignupBtns").style.display = mode === "signup" ? "" : "none";
+    $("authFormFields").style.display = mode === "success" ? "none" : "";
+    $("authSuccess").style.display = mode === "success" ? "" : "none";
+    $("authTitle").textContent = mode === "login" ? "로그인" : "회원가입";
+    if (mode !== "success"){
+      $("authUsername").value = "";
+      $("authPassword").value = "";
+      $("authPasswordConfirm").value = "";
+    }
+  }
+
   async function authSignup(){
-    const errEl = $("authError");
-    errEl.textContent = "";
-    if (!initFirebase()){ errEl.textContent = "firebase-config.js에 Firebase 설정값을 먼저 채워넣어야 해요."; return; }
+    setAuthError("");
+    if (!initFirebase()){ setAuthError("firebase-config.js에 Firebase 설정값을 먼저 채워넣어야 해요."); return; }
     const username = $("authUsername").value.trim();
     const password = $("authPassword").value;
-    if (!validUsername(username)){ errEl.textContent = "아이디는 영문/숫자/밑줄 3~20자로 입력해주세요."; return; }
-    if (password.length < 6){ errEl.textContent = "비밀번호는 6자 이상이어야 해요."; return; }
-    try { await fbAuth.createUserWithEmailAndPassword(usernameToEmail(username), password); }
-    catch(e){ errEl.textContent = authErrorMessage(e); }
+    const passwordConfirm = $("authPasswordConfirm").value;
+    if (!validUsername(username)){ setAuthError("아이디는 영문/숫자/밑줄 3~20자로 입력해주세요."); return; }
+    if (password.length < 6){ setAuthError("비밀번호는 6자 이상이어야 해요."); return; }
+    if (password !== passwordConfirm){ setAuthError("비밀번호가 일치하지 않습니다"); return; }
+    try {
+      await fbAuth.createUserWithEmailAndPassword(usernameToEmail(username), password);
+      // 방금 만든 계정으로 자동 로그인된 상태이므로, 메인 화면으로 넘어가지 않도록 바로 로그아웃한다.
+      await fbAuth.signOut();
+      setAuthMode("success");
+    }
+    catch(e){ setAuthError(authErrorMessage(e)); }
   }
 
   async function authLogin(){
-    const errEl = $("authError");
-    errEl.textContent = "";
-    if (!initFirebase()){ errEl.textContent = "firebase-config.js에 Firebase 설정값을 먼저 채워넣어야 해요."; return; }
+    setAuthError("");
+    if (!initFirebase()){ setAuthError("firebase-config.js에 Firebase 설정값을 먼저 채워넣어야 해요."); return; }
     const username = $("authUsername").value.trim();
     const password = $("authPassword").value;
     try { await fbAuth.signInWithEmailAndPassword(usernameToEmail(username), password); }
-    catch(e){ errEl.textContent = authErrorMessage(e); }
+    catch(e){ setAuthError(authErrorMessage(e)); }
   }
 
   async function authLogout(){
@@ -698,6 +729,9 @@
   function showAuthGate(){
     $("authGate").style.display = "";
     $("mainApp").style.display = "none";
+    // 회원가입 성공 직후 signOut()이 트리거하는 onAuthStateChanged(null)이
+    // "등록 완료" 화면을 로그인 화면으로 덮어써버리지 않도록 success 모드는 건드리지 않는다.
+    if (authMode !== "success") setAuthMode("login");
   }
   function showMainApp(username){
     $("authGate").style.display = "none";
@@ -719,7 +753,7 @@
 
   function watchAuthState(){
     if (!initFirebase()){
-      $("authError").textContent = "firebase-config.js에 Firebase 프로젝트 설정값을 채워넣어야 로그인 기능이 동작해요.";
+      setAuthError("firebase-config.js에 Firebase 프로젝트 설정값을 채워넣어야 로그인 기능이 동작해요.");
       return;
     }
     fbAuth.onAuthStateChanged((user) => {
@@ -1068,9 +1102,13 @@
       saveDustSetting(v);
     });
     $("authLoginBtn").addEventListener("click", authLogin);
-    $("authSignupBtn").addEventListener("click", authSignup);
+    $("authSignupBtn").addEventListener("click", () => setAuthMode("signup"));
+    $("authSignupSubmitBtn").addEventListener("click", authSignup);
+    $("authSignupCancelBtn").addEventListener("click", () => setAuthMode("login"));
+    $("authGoLoginBtn").addEventListener("click", () => setAuthMode("login"));
     $("authLogoutBtn").addEventListener("click", authLogout);
-    $("authPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") authLogin(); });
+    $("authPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") (authMode === "signup" ? authSignup() : authLogin()); });
+    $("authPasswordConfirm").addEventListener("keydown", (e) => { if (e.key === "Enter") authSignup(); });
   }
 
   initTabs();
