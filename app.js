@@ -429,19 +429,14 @@
     });
   }
 
-  function computeBuild(){
-    const resultsEl = $("buildResults");
-    if (!resultsEl) return;
-
+  // 현재 "캐릭터 스펙" 탭에 선택된 5부위 기준으로 최종 스탯을 계산한다.
+  // computeBuild()(화면 렌더용)와 computeDamageWeights()(재구축 가중치용) 둘 다 이걸 쓴다.
+  function computeBuildStats(){
     const char = getCharacter(STATE.buildCharacter);
-    const titleEl = $("buildResultsTitle");
-    if (titleEl) titleEl.textContent = "최종 스펙";
-    if (!char){
-      resultsEl.innerHTML = `<div class="empty">등록된 캐릭터가 없어요.</div>`;
-      return;
-    }
+    if (!char) return null;
     const level = STATE.buildCharLevel || DEFAULT_CHAR_LEVEL;
     const charBaseATK = char.atkByLevel[level] != null ? char.atkByLevel[level] : Object.values(char.atkByLevel)[0];
+    const baseATKSum = charBaseATK + char.weaponBaseATK; // ATK%가 곱해지는 기초값(캐릭터+무기)
 
     const chosen = SLOTS.map(s => STATE.artifacts.find(a => a.id === STATE.buildSelection[s.key])).filter(Boolean);
 
@@ -459,24 +454,43 @@
       }
     }
 
-    const finalATK = (charBaseATK + char.weaponBaseATK) * (1 + atkPercentSum / 100) + atkFlatSum;
+    const finalATK = baseATKSum * (1 + atkPercentSum / 100) + atkFlatSum;
     const finalCritRate = UNIVERSAL_BASE_CRIT_RATE + char.weaponBaseCritRate + critRateSum;
     const finalCritDMG = char.charBaseCritDMG + critDmgSum;
     const cv = 2 * finalCritRate + finalCritDMG;
 
-    if (!chosen.length){
+    return {
+      char, level, charBaseATK, baseATKSum, chosenCount: chosen.length,
+      atkPercentSum, atkFlatSum, critRateSum, critDmgSum,
+      finalATK, finalCritRate, finalCritDMG, cv,
+    };
+  }
+
+  function computeBuild(){
+    const resultsEl = $("buildResults");
+    if (!resultsEl) return;
+
+    const titleEl = $("buildResultsTitle");
+    if (titleEl) titleEl.textContent = "최종 스펙";
+
+    const stats = computeBuildStats();
+    if (!stats){
+      resultsEl.innerHTML = `<div class="empty">등록된 캐릭터가 없어요.</div>`;
+      return;
+    }
+    if (!stats.chosenCount){
       resultsEl.innerHTML = `<div class="empty">부위를 하나 이상 선택하면 빌드가 계산돼요.</div>`;
       return;
     }
 
     resultsEl.innerHTML = `
-      <div class="stat-line headline"><span>공격력</span><span class="v">${Math.round(finalATK).toLocaleString()}</span></div>
-      <div class="stat-line crit"><span>치명타 확률</span><span class="v">${finalCritRate.toFixed(1)}%</span></div>
-      <div class="stat-line crit"><span>치명타 피해</span><span class="v">${finalCritDMG.toFixed(1)}%</span></div>
-      <div class="stat-line headline"><span>CV (2×치확+치피)</span><span class="v">${cv.toFixed(1)}</span></div>
-      <div class="stat-line"><span>성유물 공격력% 합</span><span class="v">${atkPercentSum.toFixed(1)}%</span></div>
-      <div class="stat-line"><span>성유물 깡공 합</span><span class="v">${Math.round(atkFlatSum)}</span></div>
-      <div class="sub-note">${chosen.length}/5부위 선택됨 · 캐릭터 Lv.${level} · 전용 무기 Lv.90 기준</div>
+      <div class="stat-line headline"><span>공격력</span><span class="v">${Math.round(stats.finalATK).toLocaleString()}</span></div>
+      <div class="stat-line crit"><span>치명타 확률</span><span class="v">${stats.finalCritRate.toFixed(1)}%</span></div>
+      <div class="stat-line crit"><span>치명타 피해</span><span class="v">${stats.finalCritDMG.toFixed(1)}%</span></div>
+      <div class="stat-line headline"><span>CV (2×치확+치피)</span><span class="v">${stats.cv.toFixed(1)}</span></div>
+      <div class="stat-line"><span>성유물 공격력% 합</span><span class="v">${stats.atkPercentSum.toFixed(1)}%</span></div>
+      <div class="stat-line"><span>성유물 깡공 합</span><span class="v">${Math.round(stats.atkFlatSum)}</span></div>
+      <div class="sub-note">${stats.chosenCount}/5부위 선택됨 · 캐릭터 Lv.${stats.level} · 전용 무기 Lv.90 기준</div>
     `;
   }
 
@@ -501,29 +515,55 @@
   // ---------- reforge exact expected-value calculation ----------
   // 예전엔 몬테카를로(3000회 시행 평균)로 기대이득을 "추정"했는데, 경우의 수가 적어서
   // 사실 정확한 확률분포를 직접 계산할 수 있다. 롤 하나하나의 결과가 유한한 이산분포이므로
-  // 그걸 전부 컨볼루션(합성곱)해서 최종 CV의 정확한 분포를 구하고, 그 분포로 기대이득을 계산한다.
+  // 그걸 전부 컨볼루션(합성곱)해서 최종 점수의 정확한 분포를 구하고, 그 분포로 기대이득을 계산한다.
   // 몬테카를로보다 더 빠르고, 버튼을 몇 번을 눌러도 항상 똑같은 값이 나온다(노이즈 없음).
   function round6(v){ return Math.round(v * 1e6) / 1e6; }
 
-  // 롤 하나가 `type`으로 확정 배정됐을 때, CV 기여값의 확률분포(Map: 기여값 → 확률)
-  function rollDistribution(type){
-    const m = new Map();
-    if (type === "critRate_"){
-      for (const v of ROLL_TABLE.critRate_){ const k = round6(2 * v); m.set(k, (m.get(k) || 0) + 0.25); }
-      return m;
-    }
-    if (type === "critDMG_"){
-      for (const v of ROLL_TABLE.critDMG_){ const k = round6(v); m.set(k, (m.get(k) || 0) + 0.25); }
-      return m;
-    }
-    return new Map([[0, 1]]); // 치확/치피가 아닌 타입은 CV에 기여 없음
+  // ---------- 데미지 기반 가중치 (후보 C) ----------
+  // 데미지 ∝ ATK_total × (1 + 치확×치피)  로 보고, 각 스탯 1%p의 한계 기여도(편미분)를 구한다.
+  //   치확 1%p 가치 = ATK_total × 치피(소수)
+  //   치피 1%p 가치 = ATK_total × 치확(소수)
+  //   공격력% 1%p 가치 = (캐릭터+무기 기초ATK)/100 × (1 + 치확×치피)(소수)
+  // 치피 1단위를 기준(=1)으로 정규화해서, 치확/치피만 있는 기존 CV(2CR+CD)와 눈금이 비슷하게 유지된다.
+  // "캐릭터 스펙" 탭에 빌드가 없으면(캐릭터 미선택/부위 미선택) 레거시 CV 가중치로 자동 대체된다.
+  var LEGACY_CV_WEIGHTS = { critRate_: 2, critDMG_: 1, atk_: 0 };
+
+  function computeDamageWeights(){
+    const stats = computeBuildStats();
+    if (!stats || !stats.chosenCount) return LEGACY_CV_WEIGHTS;
+
+    const CR = stats.finalCritRate / 100;
+    const CD = stats.finalCritDMG / 100;
+    const critMult = 1 + CR * CD;
+
+    const wCritRate = stats.finalATK * CD;
+    const wCritDMG = stats.finalATK * CR;
+    const wAtkPct = (stats.baseATKSum / 100) * critMult;
+
+    if (!(wCritDMG > 0)) return LEGACY_CV_WEIGHTS; // 치확/치피가 0이면 안전하게 레거시로
+
+    return {
+      critRate_: wCritRate / wCritDMG,
+      critDMG_: 1,
+      atk_: wAtkPct / wCritDMG,
+    };
   }
 
-  // 롤 하나가 `types`(4개) 중 무작위로 배정될 때의 CV 기여값 분포
-  function randomRollDistribution(types){
+  // 롤 하나가 `type`으로 확정 배정됐을 때, 가중 점수 기여값의 확률분포(Map: 기여값 → 확률)
+  function rollDistribution(type, weights){
+    const w = (weights || LEGACY_CV_WEIGHTS)[type] || 0;
+    const table = ROLL_TABLE[type];
+    if (!w || !table) return new Map([[0, 1]]); // 가중치 없는 타입(원마/원충/방어력 등)은 기여 없음
+    const m = new Map();
+    for (const v of table){ const k = round6(w * v); m.set(k, (m.get(k) || 0) + 0.25); }
+    return m;
+  }
+
+  // 롤 하나가 `types`(4개) 중 무작위로 배정될 때의 가중 점수 분포
+  function randomRollDistribution(types, weights){
     const m = new Map();
     for (const t of types){
-      const sub = rollDistribution(t);
+      const sub = rollDistribution(t, weights);
       for (const [v, p] of sub) m.set(v, (m.get(v) || 0) + p * (1 / types.length));
     }
     return m;
@@ -540,46 +580,42 @@
     return result;
   }
 
-  // 부옵션 4개(존재하는 타입) 중, 치확/치피가 하나라도 있는 성유물만 재구축 의미가 있다.
-  // 우선순위 2스탯은 (치확+치피 둘 다 있으면) 그 둘로 고정, 하나만 있으면 [그 스탯, 나머지 중 하나]로.
-  function simulateOneArtifact(art, guaranteedRolls){
+  // 부옵션 4개 중, 가중치가 있는 타입(치확/치피/공격력%)이 하나라도 있는 성유물만 재구축 의미가 있다.
+  // 우선순위 2스탯은 가중치가 높은 순으로 상위 2개(치확+치피+공격력% 중 어떤 조합이든 가능).
+  function simulateOneArtifact(art, guaranteedRolls, weights){
+    weights = weights || LEGACY_CV_WEIGHTS;
     const subs = art.substats || [];
     if (subs.length < 4) return { skip: true, reason: "부옵션 4개 모두 입력해야 계산돼요" };
 
     const types = subs.map(s => s.key);
-    const hasCritRate = types.includes("critRate_");
-    const hasCritDMG = types.includes("critDMG_");
-    if (!hasCritRate && !hasCritDMG) return { skip: true, reason: "치확/치피 부옵션이 없어 재구축 효과 없음" };
+    const relevant = types.filter(t => (weights[t] || 0) > 0);
+    if (!relevant.length) return { skip: true, reason: "치확/치피/공격력% 부옵션이 없어 재구축 효과 없음" };
 
-    const curCritRate = (subs.find(s => s.key === "critRate_") || {}).value || 0;
-    const curCritDMG = (subs.find(s => s.key === "critDMG_") || {}).value || 0;
-    const oldCV = 2 * curCritRate + curCritDMG;
+    const oldScore = subs.reduce((acc, s) => acc + (weights[s.key] || 0) * s.value, 0);
 
-    let priority;
-    if (hasCritRate && hasCritDMG) priority = ["critRate_", "critDMG_"];
-    else {
-      const only = hasCritRate ? "critRate_" : "critDMG_";
-      const other = types.find(t => t !== only);
-      priority = [only, other];
+    let priority = relevant.slice().sort((a, b) => weights[b] - weights[a]).slice(0, 2);
+    if (priority.length === 1){
+      const other = types.find(t => t !== priority[0]);
+      priority.push(other);
     }
 
     const rollCount = art.startedWith4Substats ? 5 : 4;
     const guaranteed = Math.min(guaranteedRolls || 2, rollCount);
 
     let dist = new Map([[0, 1]]);
-    for (let g = 0; g < guaranteed; g++) dist = convolve(dist, rollDistribution(priority[g % 2]));
+    for (let g = 0; g < guaranteed; g++) dist = convolve(dist, rollDistribution(priority[g % 2], weights));
     if (guaranteed < rollCount){
-      const randDist = randomRollDistribution(types);
+      const randDist = randomRollDistribution(types, weights);
       for (let r = guaranteed; r < rollCount; r++) dist = convolve(dist, randDist);
     }
 
     let expectedGain = 0;
-    for (const [v, p] of dist) expectedGain += p * Math.max(0, v - oldCV);
+    for (const [v, p] of dist) expectedGain += p * Math.max(0, v - oldScore);
 
     const dust = DUST_COST[art.slotKey] || 2;
     return {
       skip: false,
-      oldCV, expectedGain, dust,
+      oldCV: oldScore, expectedGain, dust,
       efficiency: expectedGain / dust,
       priorityLabel: priority.map(p => SUBSTAT_LABELS[p]).join(" + "),
       guaranteedRolls: guaranteed,
@@ -625,6 +661,7 @@
 
     const progress = parseInt($("dustSpentInput").value, 10) || 0;
     const { activeSet, flexSlots } = getActiveSetInfo();
+    const weights = computeDamageWeights(); // 빌드 있으면 ATK%까지 반영, 없으면 레거시 CV로 자동 대체
 
     // 활성 세트가 없으면 전부 대상. 있으면: 활성 세트 소속이거나, 여유 슬롯(세트 상관없이 껴도 되는 자리)인 것만 후보.
     const inScope = a => !activeSet || a.setKey === activeSet || flexSlots.has(a.slotKey);
@@ -634,7 +671,7 @@
     const scored = inSet.map(a => {
       const cost = DUST_COST[a.slotKey] || 2;
       const guaranteedRolls = calcGuaranteedRolls(progress, cost);
-      return { art: a, ...simulateOneArtifact(a, guaranteedRolls) };
+      return { art: a, ...simulateOneArtifact(a, guaranteedRolls, weights) };
     });
     scored.sort((x, y) => {
       if (x.skip && y.skip) return 0;
@@ -663,7 +700,7 @@
           </div>
           <div class="rf-subs">${substatsLineHtml(s.art.substats)}</div>
           <div class="rf-detail">
-            <span>현재 CV ${s.oldCV.toFixed(1)}</span>
+            <span>현재 점수 ${s.oldCV.toFixed(1)}</span>
             <span class="rf-priority">우선순위: ${s.priorityLabel}</span>
           </div>
         </div>`;
@@ -680,7 +717,14 @@
       html += `<p class="reforge-note pity-banner">${pityText}</p>`;
     }
 
-    html += `<div class="reforge-table-head"><span>성유물</span><span>CV상승잠재력</span></div>`;
+    // 빌드가 없으면(캐릭터/부위 미선택) 레거시 CV 기준으로 대체됐음을 안내.
+    if (weights === LEGACY_CV_WEIGHTS){
+      html += `<p class="reforge-note">"캐릭터 스펙" 탭에서 빌드를 선택하면 공격력%까지 반영한 정밀 계산으로 전환돼요. 지금은 치확/치피만 보는 기존 방식(CV)이에요.</p>`;
+    } else {
+      html += `<p class="reforge-note">현재 빌드(공격력/치확/치피) 기준으로 공격력%까지 반영해 계산했어요.</p>`;
+    }
+
+    html += `<div class="reforge-table-head"><span>성유물</span><span>기대 상승치</span></div>`;
     html += scored.map(s => renderItem(s, false)).join("");
 
     if (outSet.length){
