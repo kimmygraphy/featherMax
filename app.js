@@ -9,6 +9,7 @@
     buildSelection: { flower: "", feather: "", sands: "", goblet: "", circlet: "" },
     buildCharacter: CHARACTERS[0] ? CHARACTERS[0].name : null,
     buildCharLevel: DEFAULT_CHAR_LEVEL,
+    reforgeScope: "equipped", // "equipped" | "all" — 재구축 후보 범위
   };
 
   // ---------- form setup ----------
@@ -629,16 +630,22 @@
     };
   }
 
-  // 지금 "장착 중"인 5부위(빌드 탭 선택값 우선, 없으면 현재 빌드 캐릭터로 지정된 첫 성유물)를 보고
-  // 그중 4개 이상을 차지하는 세트를 "활성 세트"로 본다. 4세트만 채우면 되니, 활성 세트가 아닌
-  // 장비를 낀 나머지 1자리는 "여유 슬롯(flex slot)"으로 보고 그 슬롯은 세트 무관하게 다 후보로 인정한다.
-  function getActiveSetInfo(){
+  // 지금 "장착 중"인 5부위(빌드 탭 선택값 우선, 없으면 현재 빌드 캐릭터로 지정된 첫 성유물)를 반환.
+  // getActiveSetInfo(활성 세트 판별)와 재구축 탭의 "장착 중인 것만" 범위 필터가 공유해서 쓴다.
+  function getEquippedBySlot(){
     const equippedBySlot = {};
     for (const s of SLOTS){
       let piece = STATE.artifacts.find(a => a.id === STATE.buildSelection[s.key]);
       if (!piece) piece = STATE.artifacts.find(a => a.slotKey === s.key && a.location === STATE.buildCharacter);
       equippedBySlot[s.key] = piece || null;
     }
+    return equippedBySlot;
+  }
+
+  // 지금 장착 중인 5부위 중, 그중 4개 이상을 차지하는 세트를 "활성 세트"로 본다. 4세트만 채우면 되니,
+  // 활성 세트가 아닌 장비를 낀 나머지 1자리는 "여유 슬롯(flex slot)"으로 보고 세트 무관하게 다 후보로 인정한다.
+  function getActiveSetInfo(){
+    const equippedBySlot = getEquippedBySlot();
     const counts = {};
     for (const s of SLOTS){
       const piece = equippedBySlot[s.key];
@@ -660,10 +667,20 @@
   function runReforgeRecommendation(){
     updatePityDisplay();
     const root = $("reforgeResults");
-    const eligible = STATE.artifacts.filter(a => a.rarity === 5);
+    let eligible = STATE.artifacts.filter(a => a.rarity === 5);
     if (!eligible.length){
       root.innerHTML = `<div class="empty">계산할 5★ 성유물이 없어요.</div>`;
       return;
+    }
+
+    // 범위 필터: "장착 중인 것만"이면 지금 5부위에 실제로 낀 성유물로 후보를 좁힌다.
+    if (STATE.reforgeScope === "equipped"){
+      const equippedIds = new Set(Object.values(getEquippedBySlot()).filter(Boolean).map(a => a.id));
+      eligible = eligible.filter(a => equippedIds.has(a.id));
+      if (!eligible.length){
+        root.innerHTML = `<div class="empty">"캐릭터 스펙" 탭에서 장착 중인 성유물이 없어요. 부위를 선택하거나 "배낭 전체"로 바꿔보세요.</div>`;
+        return;
+      }
     }
 
     const progress = parseInt($("dustSpentInput").value, 10) || 0;
@@ -730,6 +747,7 @@
     } else {
       html += `<p class="reforge-note">현재 빌드(공격력/치확/치피) 기준으로 공격력%까지 반영해 계산했어요.</p>`;
     }
+    html += `<p class="reforge-note">범위: ${STATE.reforgeScope === "equipped" ? "장착 중인 성유물만" : "배낭 전체"}</p>`;
 
     html += `<div class="reforge-table-head"><span>성유물</span><span>기대 상승치</span></div>`;
     html += scored.map(s => renderItem(s, false)).join("");
@@ -928,10 +946,14 @@
     const rawLoc = (item && item.location) || "";
     const mappedLoc = CHARACTER_KEY_MAP[rawLoc] || rawLoc;
     const location = LOCATION_OPTIONS.includes(mappedLoc) ? mappedLoc : OTHER_LOCATION;
-    // 옵티마이저는 startedWith4Substats 필드가 없을 수 있음. 부옵 개수로 추정.
-    const startedWith4Substats = item && item.startedWith4Substats != null
-      ? !!item.startedWith4Substats
-      : true; // 기본값, 아래에서 실제 개수로 보정
+
+    // 이 앱은 풀강(+20) 5성 성유물만 다룬다 — FIXED_MAIN_STATS의 주옵 값 자체가 +20 기준 고정치라서,
+    // 레벨이 낮은 성유물을 그대로 받으면 주옵/부옵 상태가 실제와 안 맞게 된다. level이 명시돼 있고
+    // 20이 아니면 가져오기에서 제외한다(level 필드가 아예 없으면 우리 자체 내보내기 포맷이므로 20으로 간주).
+    const level = (item && item.level != null) ? item.level : 20;
+    if (level !== 20){
+      errors.push(`#${idx + 1}: 레벨 ${level}(풀강 아님) — 풀강(+20) 성유물만 가져올 수 있어요`);
+    }
 
     const rawSubs = Array.isArray(item && item.substats) ? item.substats : [];
     const seen = new Set();
@@ -946,10 +968,23 @@
       substats.push({ key: mappedKey, value: val });
       if (substats.length >= 4) break;
     }
-    // 3줄 시작 성유물은 부옵션 3개가 정상. 옵티마이저는 빈 4번째 자리를 {"key":"","value":0}으로 채움.
-    if (substats.length < 3) errors.push(`#${idx + 1}: 부옵션이 3개 미만으로 인식됐어요 (${substats.length}개)`);
+    // 풀강(+20) 성유물은 3줄/4줄 시작 여부와 무관하게 4강 시점에 4번째 줄이 무조건 열리므로,
+    // +20이면 부옵이 반드시 4개여야 한다. 4개 미만이면 원본 데이터 자체가 불완전한 것.
+    if (substats.length < 4) errors.push(`#${idx + 1}: 부옵션이 ${substats.length}개만 인식됐어요 (풀강 성유물은 4개여야 해요)`);
 
     if (errors.length) return { ok: false, errors };
+
+    // startedWith4Substats: 명시된 필드가 있으면 그대로, 없으면 totalRolls로 역산.
+    // totalRolls = 시작 줄 수(3 또는 4) + 레벨업당 1롤(4/8/12/16/20 = 5회) → 시작줄수 = totalRolls - 5 (level=20 기준)
+    let startedWith4Substats;
+    if (item && item.startedWith4Substats != null){
+      startedWith4Substats = !!item.startedWith4Substats;
+    } else if (item && typeof item.totalRolls === "number"){
+      const initialLines = item.totalRolls - Math.floor(level / 4);
+      startedWith4Substats = initialLines >= 4;
+    } else {
+      startedWith4Substats = true; // 정보가 전혀 없으면 기존 동작대로 낙관적 기본값
+    }
 
     // mainStatKey: 옵티마이저 키 매핑 적용 후, FIXED_MAIN_STATS에 있으면 그 값, 없으면 item 원본 값 사용
     const mappedMain = normalizeStatKey((item && item.mainStatKey) || "");
@@ -960,9 +995,9 @@
     return {
       ok: true,
       data: {
-        slotKey, rarity: item.rarity || 5, setKey, level: item.level || 20, location,
+        slotKey, rarity: item.rarity || 5, setKey, level: 20, location,
         mainStatKey, mainStatValue,
-        substats, startedWith4Substats: substats.length >= 4,
+        substats, startedWith4Substats,
       },
     };
   }
@@ -1343,6 +1378,13 @@
       computeBuild();
     });
     $("reforgeRunBtn").addEventListener("click", runReforgeRecommendation);
+    document.querySelectorAll(".reforge-scope-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".reforge-scope-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        STATE.reforgeScope = btn.dataset.scope;
+      });
+    });
     $("jsonImportBtn").addEventListener("click", importFromJson);
     $("hoyoParseBtn").addEventListener("click", parseAndPreviewHoyo);
     $("hoyoSaveBtn").addEventListener("click", saveHoyoPreview);
