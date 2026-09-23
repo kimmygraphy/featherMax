@@ -94,7 +94,7 @@
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 
-  input[type="text"], input[type="number"], select {
+  input[type="text"], input[type="number"], input[type="password"], select {
     width: 100%;
     background: var(--panel-2);
     border: 1px solid var(--line);
