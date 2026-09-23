@@ -866,8 +866,8 @@
   // 자체 포맷과 옵티마이저 포맷(setKey 영문, eleMas/enerRech_ 등) 모두 지원.
   function normalizeImportItem(item, idx){
     const errors = [];
-    const slotKey = item && item.slotKey;
-    if (!SLOT_MAP[slotKey]) errors.push(`#${idx + 1}: slotKey가 올바르지 않아요 (flower/feather/sands/goblet/circlet 중 하나)`);
+    const slotKey = normalizeSlotKey(item && item.slotKey);
+    if (!SLOT_MAP[slotKey]) errors.push(`#${idx + 1}: slotKey가 올바르지 않아요 (flower/feather/plume/sands/goblet/circlet 중 하나)`);
 
     // setKey: 영문 옵티마이저 키면 한글로 변환, 이미 한글이면 그대로.
     const rawSet = (item && item.setKey) || "";
@@ -877,7 +877,10 @@
     const rawLoc = (item && item.location) || "";
     const mappedLoc = CHARACTER_KEY_MAP[rawLoc] || rawLoc;
     const location = LOCATION_OPTIONS.includes(mappedLoc) ? mappedLoc : OTHER_LOCATION;
-    const startedWith4Substats = (item && item.startedWith4Substats) !== false;
+    // 옵티마이저는 startedWith4Substats 필드가 없을 수 있음. 부옵 개수로 추정.
+    const startedWith4Substats = item && item.startedWith4Substats != null
+      ? !!item.startedWith4Substats
+      : true; // 기본값, 아래에서 실제 개수로 보정
 
     const rawSubs = Array.isArray(item && item.substats) ? item.substats : [];
     const seen = new Set();
@@ -892,7 +895,8 @@
       substats.push({ key: mappedKey, value: val });
       if (substats.length >= 4) break;
     }
-    if (substats.length < 4) errors.push(`#${idx + 1}: 부옵션이 4개 미만으로 인식됐어요 (${substats.length}개)`);
+    // 3줄 시작 성유물은 부옵션 3개가 정상. 옵티마이저는 빈 4번째 자리를 {"key":"","value":0}으로 채움.
+    if (substats.length < 3) errors.push(`#${idx + 1}: 부옵션이 3개 미만으로 인식됐어요 (${substats.length}개)`);
 
     if (errors.length) return { ok: false, errors };
 
@@ -907,7 +911,7 @@
       data: {
         slotKey, rarity: item.rarity || 5, setKey, level: item.level || 20, location,
         mainStatKey, mainStatValue,
-        substats, startedWith4Substats,
+        substats, startedWith4Substats: substats.length >= 4,
       },
     };
   }
