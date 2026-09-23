@@ -186,6 +186,20 @@
     font-variant-numeric: tabular-nums;
     color: var(--gold);
   }
+  .mainstat-display select {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--gold);
+    font-size: 14.5px;
+    font-family: inherit;
+    padding: 0;
+    outline: none;
+  }
+  .mainstat-display select option {
+    background: var(--panel-2);
+    color: var(--ink);
+  }
 
   .btnrow { display: flex; gap: 10px; margin-top: 16px; }
   .btnrow-right { display: flex; justify-content: flex-end; margin-top: 14px; }
@@ -295,6 +309,17 @@
   }
   .form-error.show { display: block; }
 
+  .form-success {
+    display: none;
+    color: var(--good);
+    font-size: 12.5px;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--good);
+    border-radius: var(--radius);
+  }
+  .form-success.show { display: block; }
+
   .auth-success {
     margin-top: 14px;
     padding: 14px;
@@ -332,6 +357,51 @@
     cursor: pointer;
   }
   .tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
+
+  .sub-tabnav {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 16px;
+  }
+  .sub-tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--ink-dim);
+    padding: 6px 4px 8px;
+    margin-right: 14px;
+    font-size: 13px;
+    font-family: inherit;
+    border-radius: 0;
+    cursor: pointer;
+  }
+  .sub-tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
+
+  .hoyo-preview-item {
+    border-top: 1px solid var(--line);
+    padding: 12px 0;
+  }
+  .hoyo-preview-item:last-child { border-bottom: 1px solid var(--line); }
+  .hoyo-preview-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px; gap: 10px;
+  }
+  .hoyo-preview-head .slot-label {
+    font-weight: 600; font-size: 14px; white-space: nowrap;
+  }
+  .hoyo-preview-head select {
+    max-width: 200px;
+  }
+  .hoyo-preview-main {
+    font-size: 13px; color: var(--gold); margin-bottom: 4px;
+  }
+  .hoyo-preview-subs {
+    font-size: 12.5px; color: var(--ink-dim);
+    display: flex; flex-wrap: wrap; gap: 4px 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hoyo-preview-subs .crit { color: var(--wine); font-weight: 600; }
 
   .build-row {
     display: flex; align-items: center; gap: 10px;
