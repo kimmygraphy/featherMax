@@ -869,11 +869,14 @@
     const slotKey = item && item.slotKey;
     if (!SLOT_MAP[slotKey]) errors.push(`#${idx + 1}: slotKey가 올바르지 않아요 (flower/feather/sands/goblet/circlet 중 하나)`);
 
-    // setKey: 한글이든 영문(옵티마이저)이든 그대로 저장. 목록에 없으면 "오프셋" 표시에서만 구분.
-    const setKey = (item && item.setKey) || "오프셋";
+    // setKey: 영문 옵티마이저 키면 한글로 변환, 이미 한글이면 그대로.
+    const rawSet = (item && item.setKey) || "";
+    const setKey = ARTIFACT_SET_KEY_MAP[rawSet] || rawSet || "오프셋";
 
-    // location: 옵티마이저는 빈 문자열이거나 영문 캐릭터 키이므로, 목록에 없으면 '기타'로 처리.
-    const location = LOCATION_OPTIONS.includes(item && item.location) ? item.location : OTHER_LOCATION;
+    // location: 영문 옵티마이저 캐릭터키면 한글로 변환, 빈 문자열이면 '기타'.
+    const rawLoc = (item && item.location) || "";
+    const mappedLoc = CHARACTER_KEY_MAP[rawLoc] || rawLoc;
+    const location = LOCATION_OPTIONS.includes(mappedLoc) ? mappedLoc : OTHER_LOCATION;
     const startedWith4Substats = (item && item.startedWith4Substats) !== false;
 
     const rawSubs = Array.isArray(item && item.substats) ? item.substats : [];
