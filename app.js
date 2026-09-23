@@ -591,6 +591,13 @@
     const relevant = types.filter(t => (weights[t] || 0) > 0);
     if (!relevant.length) return { skip: true, reason: "치확/치피/공격력% 부옵션이 없어 재구축 효과 없음" };
 
+    // 꽃/깃털은 시계·잔과 달리 주옵이 공격력%가 아니라서, 부옵으로 공격력%를 못 챙기면
+    // 그 성유물은 이 빌드에서 영원히 공격력%를 공급할 수 없다(재구축은 부옵 종류를 못 바꿈).
+    // 빌드가 잡혀서 공격력%가 실제로 가치 있는 상황(weights.atk_ > 0)에서만 이 필터를 적용한다.
+    if ((weights.atk_ || 0) > 0 && (art.slotKey === "flower" || art.slotKey === "feather") && !types.includes("atk_")){
+      return { skip: true, reason: "공격력% 부옵이 없어 후보에서 제외 (꽃/깃털은 공격력% 확보가 가능한 유일한 부위)" };
+    }
+
     const oldScore = subs.reduce((acc, s) => acc + (weights[s.key] || 0) * s.value, 0);
 
     let priority = relevant.slice().sort((a, b) => weights[b] - weights[a]).slice(0, 2);
