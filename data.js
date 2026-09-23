@@ -301,6 +301,7 @@
   var ROLL_TABLE = {
     critRate_: [2.72, 3.11, 3.50, 3.89],
     critDMG_: [5.44, 6.22, 7.00, 7.77],
+    atk_: [4.08, 4.66, 5.25, 5.83],
   };
   // 재구축(계몽의 먼지) 부위별 소모량
   var DUST_COST = { flower: 1, feather: 1, sands: 2, goblet: 2, circlet: 2 };
