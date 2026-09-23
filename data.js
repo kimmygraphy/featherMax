@@ -12,9 +12,16 @@
   const SUBSTAT_LABELS = {
     hp: "HP", hp_: "HP%", atk: "공격력", atk_: "공격력%",
     def: "방어력", def_: "방어력%", em: "원소 마스터리",
-    er_: "원소 충전 효율%", critRate_: "치명타 확률%", critDMG_: "치명타 피해%",
+    er_: "원소 충전 효율", critRate_: "치명타 확률", critDMG_: "치명타 피해",
   };
   const SUBSTAT_KEYS = Object.keys(SUBSTAT_LABELS);
+
+  // 옵티마이저 JSON의 키 → 내부 키 매핑. 같으면 생략.
+  const OPTIMIZER_KEY_MAP = {
+    eleMas: "em",
+    enerRech_: "er_",
+  };
+  function normalizeStatKey(k){ return OPTIMIZER_KEY_MAP[k] || k; }
 
   const SET_OPTIONS = ["하늘 경계가 드러난 밤", "오프셋"];
   const OFFSET_ICON = "💬"; // 오프셋(및 미장착 '기타') 아이콘
@@ -29,6 +36,7 @@
     "진실 갈망의 꽃": "flower",
     "깊은 죄의 깃털": "feather",
     "계시의 종": "sands",
+    "눈 덮인 고향의 최후": "sands",
     "넘치는 술잔": "goblet",
     "영겁의 왕관": "circlet",
   };
@@ -60,7 +68,7 @@
       weaponBaseCritRate: 22.1,
     },
   ];
-  const DEFAULT_CHAR_LEVEL = "95";
+  const DEFAULT_CHAR_LEVEL = "90";
   const UNIVERSAL_BASE_CRIT_RATE = 5; // 모든 캐릭터 공통 치확 기본값
   const OTHER_LOCATION = "기타";
   const LOCATION_OPTIONS = [...CHARACTERS.map(c => c.name), OTHER_LOCATION];
@@ -73,6 +81,7 @@
   }
 
   // 풀강(+20) 5성 성유물은 부위별 주스탯이 사실상 고정값이라 입력받지 않고 바로 계산한다.
+  // 모자(circlet)만 치피/치확 중 선택 가능 → CIRCLET_MAIN_OPTIONS 참고.
   const FIXED_MAIN_STATS = {
     flower: { key: "hp", value: 4780, label: "HP" },
     feather: { key: "atk", value: 311, label: "공격력" },
@@ -80,6 +89,10 @@
     goblet: { key: "atk_", value: 46.6, label: "공격력" },
     circlet: { key: "critDMG_", value: 62.2, label: "치명타 피해" },
   };
+  const CIRCLET_MAIN_OPTIONS = [
+    { key: "critDMG_", value: 62.2, label: "치명타 피해" },
+    { key: "critRate_", value: 31.1, label: "치명타 확률" },
+  ];
 
   // 5성 성유물 부옵션 1롤 당 값 (4단계 중 균등 랜덤 — 공개 참고치)
   const ROLL_TABLE = {
