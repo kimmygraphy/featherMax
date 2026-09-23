@@ -1,42 +1,42 @@
 // data.js — 성유물/캐릭터 고정 데이터. 캐릭터를 추가하려면 CHARACTERS 배열에 객체를 더 넣으면 됨.
 
-  const SLOTS = [
+  var SLOTS = [
     { key: "flower", label: "꽃", icon: "data/imgs/artifacts/flower.png" },
     { key: "feather", label: "깃털", icon: "data/imgs/artifacts/feather.png" },
     { key: "sands", label: "시계", icon: "data/imgs/artifacts/sands.png" },
     { key: "goblet", label: "잔", icon: "data/imgs/artifacts/goblet.png" },
     { key: "circlet", label: "모자", icon: "data/imgs/artifacts/circlet.png" },
   ];
-  const SLOT_MAP = Object.fromEntries(SLOTS.map(s => [s.key, s]));
+  var SLOT_MAP = Object.fromEntries(SLOTS.map(s => [s.key, s]));
 
-  const SUBSTAT_LABELS = {
+  var SUBSTAT_LABELS = {
     hp: "HP", hp_: "HP%", atk: "공격력", atk_: "공격력%",
     def: "방어력", def_: "방어력%", em: "원소 마스터리",
     er_: "원소 충전 효율", critRate_: "치명타 확률", critDMG_: "치명타 피해",
   };
-  const SUBSTAT_KEYS = Object.keys(SUBSTAT_LABELS);
+  var SUBSTAT_KEYS = Object.keys(SUBSTAT_LABELS);
 
   // 옵티마이저 JSON의 키 → 내부 키 매핑. 같으면 생략.
-  const OPTIMIZER_KEY_MAP = {
+  var OPTIMIZER_KEY_MAP = {
     eleMas: "em",
     enerRech_: "er_",
   };
   function normalizeStatKey(k){ return OPTIMIZER_KEY_MAP[k] || k; }
 
   // 옵티마이저 slotKey 매핑 (plume → feather)
-  const OPTIMIZER_SLOT_MAP = { plume: "feather" };
+  var OPTIMIZER_SLOT_MAP = { plume: "feather" };
   function normalizeSlotKey(k){ return OPTIMIZER_SLOT_MAP[k] || k; }
 
-  const SET_OPTIONS = ["하늘 경계가 드러난 밤", "오프셋"];
-  const OFFSET_ICON = "💬"; // 오프셋(및 미장착 '기타') 아이콘
-  const SET_ICONS = {
+  var SET_OPTIONS = ["하늘 경계가 드러난 밤", "오프셋"];
+  var OFFSET_ICON = "💬"; // 오프셋(및 미장착 '기타') 아이콘
+  var SET_ICONS = {
     "하늘 경계가 드러난 밤": "data/imgs/artifacts/night.png",
     "오프셋": OFFSET_ICON,
   };
 
   // "하늘 경계가 드러난 밤" 세트만 개별 이름으로 인식한다 (세트 하나당 이름 5개 고정이라 유지보수 거의 없음).
   // 이 사전에 없는 이름은 전부 "오프셋"으로 분류되고, 부위는 주스탯 종류로 판별한다 (app.js의 classifySlotFromMainStat).
-  const NIGHT_SET_PIECE_NAMES = {
+  var NIGHT_SET_PIECE_NAMES = {
     "진실 갈망의 꽃": "flower",
     "깊은 죄의 깃털": "feather",
     "계시의 종": "sands",
@@ -46,7 +46,7 @@
   };
 
   // 붙여넣기 텍스트의 부옵션 이름 → {flat, pct} 키. 값에 %가 붙어있는지로 flat/pct를 가른다.
-  const SUBSTAT_NAME_TO_KEY = {
+  var SUBSTAT_NAME_TO_KEY = {
     "HP": { flat: "hp", pct: "hp_" },
     "공격력": { flat: "atk", pct: "atk_" },
     "방어력": { flat: "def", pct: "def_" },
@@ -58,11 +58,11 @@
 
   // 캐릭터 레지스트리 — 나중에 캐릭터를 추가하려면 이 배열에 객체 하나만 더 넣으면 됨.
   // 캐릭터 레벨(돌파 단계) 선택지 — 순서대로 드롭다운에 표시됨.
-  const CHAR_LEVEL_OPTIONS = ["80/80", "80/90", "90", "95", "100"];
+  var CHAR_LEVEL_OPTIONS = ["80/80", "80/90", "90", "95", "100"];
 
   // atkByLevel: CHAR_LEVEL_OPTIONS의 각 단계에서 기초 공격력. charBaseCritDMG는 최대 돌파 이후로는
   // 레벨과 무관하게 고정이라 레벨별 테이블 없이 하나만 둠. weaponBase*는 장착 무기 기초스탯(레벨 90) 기준.
-  const CHARACTERS = [
+  var CHARACTERS = [
     {
       name: "플린스",
       icon: "data/imgs/characters/flins.png",
@@ -72,10 +72,10 @@
       weaponBaseCritRate: 22.1,
     },
   ];
-  const DEFAULT_CHAR_LEVEL = "90";
-  const UNIVERSAL_BASE_CRIT_RATE = 5; // 모든 캐릭터 공통 치확 기본값
-  const OTHER_LOCATION = "기타";
-  const LOCATION_OPTIONS = [...CHARACTERS.map(c => c.name), OTHER_LOCATION];
+  var DEFAULT_CHAR_LEVEL = "90";
+  var UNIVERSAL_BASE_CRIT_RATE = 5; // 모든 캐릭터 공통 치확 기본값
+  var OTHER_LOCATION = "기타";
+  var LOCATION_OPTIONS = [...CHARACTERS.map(c => c.name), OTHER_LOCATION];
   function getCharacter(name){ return CHARACTERS.find(c => c.name === name) || CHARACTERS[0] || null; }
   // 장착 캐릭터 드롭다운/뱃지에 쓰는 아이콘. '기타'는 오프셋과 동일한 아이콘을 씀.
   function getLocationIcon(name){
@@ -86,20 +86,20 @@
 
   // 풀강(+20) 5성 성유물은 부위별 주스탯이 사실상 고정값이라 입력받지 않고 바로 계산한다.
   // 모자(circlet)만 치피/치확 중 선택 가능 → CIRCLET_MAIN_OPTIONS 참고.
-  const FIXED_MAIN_STATS = {
+  var FIXED_MAIN_STATS = {
     flower: { key: "hp", value: 4780, label: "HP" },
     feather: { key: "atk", value: 311, label: "공격력" },
     sands: { key: "atk_", value: 46.6, label: "공격력" },
     goblet: { key: "atk_", value: 46.6, label: "공격력" },
     circlet: { key: "critDMG_", value: 62.2, label: "치명타 피해" },
   };
-  const CIRCLET_MAIN_OPTIONS = [
+  var CIRCLET_MAIN_OPTIONS = [
     { key: "critDMG_", value: 62.2, label: "치명타 피해" },
     { key: "critRate_", value: 31.1, label: "치명타 확률" },
   ];
 
   // 옵티마이저 영문 세트키 → 한글 세트명 매핑
-  const ARTIFACT_SET_KEY_MAP = {
+  var ARTIFACT_SET_KEY_MAP = {
     ADayCarvedFromRisingWinds: "바람이 시작되는 날",
     Adventurer: "모험가",
     ArchaicPetra: "유구한 반암",
@@ -165,12 +165,12 @@
     WanderersTroupe: "대지를 유랑하는 악단",
   };
   // 역매핑: 한글 세트명 → 영문 키
-  const ARTIFACT_SET_NAME_MAP = Object.fromEntries(
+  var ARTIFACT_SET_NAME_MAP = Object.fromEntries(
     Object.entries(ARTIFACT_SET_KEY_MAP).map(([k, v]) => [v, k])
   );
 
   // 옵티마이저 영문 캐릭터키 → 한글 캐릭터명 매핑
-  const CHARACTER_KEY_MAP = {
+  var CHARACTER_KEY_MAP = {
     Aino: "아이노",
     Albedo: "알베도",
     Alhaitham: "알하이탐",
@@ -293,14 +293,14 @@
     Zibai: "자백",
   };
   // 역매핑: 한글 캐릭터명 → 영문 키
-  const CHARACTER_NAME_MAP = Object.fromEntries(
+  var CHARACTER_NAME_MAP = Object.fromEntries(
     Object.entries(CHARACTER_KEY_MAP).map(([k, v]) => [v, k])
   );
 
   // 5성 성유물 부옵션 1롤 당 값 (4단계 중 균등 랜덤 — 공개 참고치)
-  const ROLL_TABLE = {
+  var ROLL_TABLE = {
     critRate_: [2.72, 3.11, 3.50, 3.89],
     critDMG_: [5.44, 6.22, 7.00, 7.77],
   };
   // 재구축(계몽의 먼지) 부위별 소모량
-  const DUST_COST = { flower: 1, feather: 1, sands: 2, goblet: 2, circlet: 2 };
+  var DUST_COST = { flower: 1, feather: 1, sands: 2, goblet: 2, circlet: 2 };
