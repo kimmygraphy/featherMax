@@ -23,6 +23,10 @@
   };
   function normalizeStatKey(k){ return OPTIMIZER_KEY_MAP[k] || k; }
 
+  // 옵티마이저 slotKey 매핑 (plume → feather)
+  const OPTIMIZER_SLOT_MAP = { plume: "feather" };
+  function normalizeSlotKey(k){ return OPTIMIZER_SLOT_MAP[k] || k; }
+
   const SET_OPTIONS = ["하늘 경계가 드러난 밤", "오프셋"];
   const OFFSET_ICON = "💬"; // 오프셋(및 미장착 '기타') 아이콘
   const SET_ICONS = {
