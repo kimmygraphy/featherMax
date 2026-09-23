@@ -92,21 +92,51 @@
 
   function updateMainStatDisplay(){
     const slot = $("slotKey").value;
-    const fixed = FIXED_MAIN_STATS[slot];
     const disp = $("mainStatDisplay");
+    if (slot === "circlet"){
+      // 모자는 치피/치확 중 선택 가능한 드롭다운
+      const current = disp.dataset.circletKey || CIRCLET_MAIN_OPTIONS[0].key;
+      disp.innerHTML = `<select id="circletMainSelect">${
+        CIRCLET_MAIN_OPTIONS.map(o =>
+          `<option value="${o.key}" ${o.key===current?"selected":""}>${o.label} ${fmtVal(o.key, o.value)}</option>`
+        ).join("")
+      }</select>`;
+      disp.dataset.circletKey = current;
+      const sel = $("circletMainSelect");
+      sel.addEventListener("change", () => {
+        const prev = disp.dataset.circletKey;
+        disp.dataset.circletKey = sel.value;
+        // 주옵션과 중복되는 부옵션만 리셋
+        const rows = Array.from(document.querySelectorAll("#substatRows .substat-row"));
+        rows.forEach(row => {
+          const subKey = row.querySelector(".sub-key");
+          if (subKey.value === sel.value){
+            subKey.value = "";
+            row.querySelector(".sub-value").value = "";
+          }
+        });
+        // FIXED_MAIN_STATS 동적 갱신
+        const opt = CIRCLET_MAIN_OPTIONS.find(o => o.key === sel.value);
+        if (opt) FIXED_MAIN_STATS.circlet = { key: opt.key, value: opt.value, label: opt.label };
+        refreshSubstatOptions();
+      });
+      return;
+    }
+    const fixed = FIXED_MAIN_STATS[slot];
     if (!fixed){ disp.textContent = "—"; return; }
     disp.textContent = fixed.label + " " + fmtVal(fixed.key, fixed.value);
   }
 
   function substatRowHtml(idx, key, value){
     const opts = SUBSTAT_KEYS.map(k => `<option value="${k}" ${k===key?"selected":""}>${SUBSTAT_LABELS[k]}</option>`).join("");
+    const ti = idx * 2 + 1; // tabindex: key1=1, val1=2, key2=3, val2=4, ...
     return `
       <div class="substat-row" data-idx="${idx}">
-        <select class="sub-key">
+        <select class="sub-key" tabindex="${ti}">
           <option value="">— 없음 —</option>
           ${opts}
         </select>
-        <input type="number" step="0.1" class="sub-value" placeholder="값" value="${value != null ? value : ""}" />
+        <input type="number" step="0.1" class="sub-value" placeholder="값" value="${value != null ? value : ""}" tabindex="${ti+1}" />
       </div>`;
   }
 
@@ -141,6 +171,15 @@
     });
   }
 
+  // 부옵션 키를 선택하면 해당 행의 값 입력칸으로 자동 포커스
+  function autoFocusSubValue(e){
+    if (!e.target.classList.contains("sub-key")) return;
+    if (e.target.value){
+      const valInput = e.target.closest(".substat-row").querySelector(".sub-value");
+      if (valInput) valInput.focus();
+    }
+  }
+
   function readSubstatRows(){
     const rows = Array.from(document.querySelectorAll("#substatRows .substat-row"));
     const out = [];
@@ -172,23 +211,37 @@
     const el = $("formError");
     el.textContent = msg;
     el.classList.add("show");
+    hideFormSuccess();
   }
   function clearFormError(){
     const el = $("formError");
     el.textContent = "";
     el.classList.remove("show");
   }
+  function showFormSuccess(msg){
+    const el = $("formSuccess");
+    el.textContent = msg;
+    el.classList.add("show");
+  }
+  function hideFormSuccess(){
+    const el = $("formSuccess");
+    if (el){ el.textContent = ""; el.classList.remove("show"); }
+  }
 
-  function resetForm(preserveSlot){
+  // preserveFields=true: 등록 성공 후에는 부옵션만 리셋하고 부위/세트/장착캐릭터/주스탯은 유지
+  function resetForm(preserveSlot, preserveFields){
     clearFormError();
+    hideFormSuccess();
     STATE.editingId = null;
-    $("formTitle").textContent = "새 성유물 등록";
+    $("formTitle").textContent = "성유물 등록";
     $("saveBtn").textContent = "성유물 등록";
     $("cancelBtn").style.display = "none";
-    setFieldValue("slotKey", preserveSlot || "flower");
-    updateMainStatDisplay();
-    setFieldValue("setKey", SET_OPTIONS[0]);
-    setFieldValue("location", LOCATION_OPTIONS[0]);
+    if (!preserveFields){
+      setFieldValue("slotKey", preserveSlot || "flower");
+      updateMainStatDisplay();
+      setFieldValue("setKey", SET_OPTIONS[0]);
+      setFieldValue("location", LOCATION_OPTIONS[0]);
+    }
     $("startedWith4").checked = true;
     renderSubstatRows([]);
   }
@@ -294,6 +347,19 @@
         $("tab-build").style.display = name === "build" ? "" : "none";
         $("tab-reforge").style.display = name === "reforge" ? "" : "none";
         if (name === "build") computeBuild();
+      });
+    });
+  }
+
+  function initSubTabs(){
+    document.querySelectorAll(".sub-tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".sub-tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const name = btn.dataset.subtab;
+        document.querySelectorAll(".sub-tab-panel").forEach(p => {
+          p.style.display = p.id === ("subtab-" + name) ? "" : "none";
+        });
       });
     });
   }
@@ -664,9 +730,6 @@
     "auth/user-not-found": "등록되지 않은 ID입니다",
     "auth/wrong-password": "비밀번호가 맞지 않습니다",
     "auth/invalid-email": "아이디 형식이 올바르지 않아요.",
-    // Firebase 프로젝트에서 "이메일 열거 보호(email enumeration protection)"가 켜져 있으면
-    // 존재하지 않는 아이디/틀린 비밀번호 둘 다 이 코드 하나로 내려옵니다 (구분 불가).
-    // 콘솔의 Authentication > Settings에서 해당 옵션을 끄면 위의 user-not-found / wrong-password로 세분화됩니다.
     "auth/invalid-credential": "등록되지 않은 ID이거나 비밀번호가 맞지 않습니다",
     "auth/too-many-requests": "시도가 너무 많아요. 잠시 후 다시 시도해주세요.",
   };
@@ -705,7 +768,6 @@
     if (password !== passwordConfirm){ setAuthError("비밀번호가 일치하지 않습니다"); return; }
     try {
       await fbAuth.createUserWithEmailAndPassword(usernameToEmail(username), password);
-      // 방금 만든 계정으로 자동 로그인된 상태이므로, 메인 화면으로 넘어가지 않도록 바로 로그아웃한다.
       await fbAuth.signOut();
       setAuthMode("success");
     }
@@ -729,8 +791,6 @@
   function showAuthGate(){
     $("authGate").style.display = "";
     $("mainApp").style.display = "none";
-    // 회원가입 성공 직후 signOut()이 트리거하는 onAuthStateChanged(null)이
-    // "등록 완료" 화면을 로그인 화면으로 덮어써버리지 않도록 success 모드는 건드리지 않는다.
     if (authMode !== "success") setAuthMode("login");
   }
   function showMainApp(username){
@@ -776,14 +836,16 @@
   }
 
   // 붙여넣은 JSON 한 건을 저장 가능한 형태로 검증/정규화한다.
+  // 자체 포맷과 옵티마이저 포맷(setKey 영문, eleMas/enerRech_ 등) 모두 지원.
   function normalizeImportItem(item, idx){
     const errors = [];
     const slotKey = item && item.slotKey;
     if (!SLOT_MAP[slotKey]) errors.push(`#${idx + 1}: slotKey가 올바르지 않아요 (flower/feather/sands/goblet/circlet 중 하나)`);
 
-    const setKey = item && item.setKey;
-    if (!SET_OPTIONS.includes(setKey)) errors.push(`#${idx + 1}: setKey는 "${SET_OPTIONS.join('" / "')}" 중 하나여야 해요`);
+    // setKey: 한글이든 영문(옵티마이저)이든 그대로 저장. 목록에 없으면 "오프셋" 표시에서만 구분.
+    const setKey = (item && item.setKey) || "오프셋";
 
+    // location: 옵티마이저는 빈 문자열이거나 영문 캐릭터 키이므로, 목록에 없으면 '기타'로 처리.
     const location = LOCATION_OPTIONS.includes(item && item.location) ? item.location : OTHER_LOCATION;
     const startedWith4Substats = (item && item.startedWith4Substats) !== false;
 
@@ -791,23 +853,30 @@
     const seen = new Set();
     const substats = [];
     for (const s of rawSubs){
-      if (!s || !SUBSTAT_KEYS.includes(s.key) || seen.has(s.key)) continue;
+      if (!s) continue;
+      const mappedKey = normalizeStatKey(s.key);           // 옵티마이저 키 → 내부 키
+      if (!SUBSTAT_KEYS.includes(mappedKey) || seen.has(mappedKey)) continue;
       const val = Number(s.value);
       if (!isFinite(val)) continue;
-      seen.add(s.key);
-      substats.push({ key: s.key, value: val });
+      seen.add(mappedKey);
+      substats.push({ key: mappedKey, value: val });
       if (substats.length >= 4) break;
     }
     if (substats.length < 4) errors.push(`#${idx + 1}: 부옵션이 4개 미만으로 인식됐어요 (${substats.length}개)`);
 
     if (errors.length) return { ok: false, errors };
 
+    // mainStatKey: 옵티마이저 키 매핑 적용 후, FIXED_MAIN_STATS에 있으면 그 값, 없으면 item 원본 값 사용
+    const mappedMain = normalizeStatKey((item && item.mainStatKey) || "");
     const fixed = FIXED_MAIN_STATS[slotKey];
+    const mainStatKey = fixed ? fixed.key : mappedMain;
+    const mainStatValue = fixed ? fixed.value : 0;
+
     return {
       ok: true,
       data: {
-        slotKey, rarity: 5, setKey, level: 20, location,
-        mainStatKey: fixed.key, mainStatValue: fixed.value,
+        slotKey, rarity: item.rarity || 5, setKey, level: item.level || 20, location,
+        mainStatKey, mainStatValue,
         substats, startedWith4Substats,
       },
     };
@@ -829,7 +898,10 @@
       return;
     }
 
-    const items = Array.isArray(parsed) ? parsed : [parsed];
+    // 옵티마이저 형식: { "artifacts": [...] }  /  일반 배열: [...]  /  단일 객체: {...}
+    const items = Array.isArray(parsed) ? parsed
+      : (parsed.artifacts && Array.isArray(parsed.artifacts)) ? parsed.artifacts
+      : [parsed];
     const btn = $("jsonImportBtn");
     btn.disabled = true;
 
@@ -857,20 +929,32 @@
     }
   }
 
-  // 보유 성유물 전체를 "JSON으로 한번에 등록" 입력창과 동일한 스키마로 내보낸다.
-  function exportJson(){
-    const statusEl = $("exportStatus");
-
-    // "보유 성유물"로 등록된 실제 데이터(STATE.artifacts)만 내보낸다. 가져오기 입력창 내용과는 무관.
-    const data = STATE.artifacts.map(a => ({
+  function buildExportJson(){
+    return JSON.stringify(STATE.artifacts.map(a => ({
       slotKey: a.slotKey,
       setKey: a.setKey,
       location: a.location,
       startedWith4Substats: !!a.startedWith4Substats,
       substats: (a.substats || []).map(s => ({ key: s.key, value: s.value })),
-    }));
-    const json = JSON.stringify(data, null, 2);
+    })), null, 2);
+  }
 
+  // #13-a: 클립보드에 복사
+  async function copyJsonToClipboard(){
+    const statusEl = $("exportStatus");
+    const json = buildExportJson();
+    try {
+      await navigator.clipboard.writeText(json);
+      if (statusEl) statusEl.textContent = `${STATE.artifacts.length}개 목록이 클립보드에 복사되었습니다.`;
+    } catch(e){
+      if (statusEl) statusEl.textContent = "복사에 실패했어요. 브라우저가 클립보드 접근을 차단했을 수 있어요.";
+    }
+  }
+
+  // #13-b: JSON 파일로 다운로드
+  function exportJsonFile(){
+    const statusEl = $("exportStatus");
+    const json = buildExportJson();
     try {
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -881,37 +965,36 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      if (statusEl) statusEl.textContent = `${data.length}개 내보냄 (artifacts-export.json 다운로드됨)`;
+      if (statusEl) statusEl.textContent = `${STATE.artifacts.length}개 내보냄 (artifacts-export.json)`;
     } catch(e){
-      if (statusEl) statusEl.textContent = "파일 다운로드를 지원하지 않는 환경이에요. 대신 '가져오기' 입력창에 붙여넣었어요.";
-      $("jsonInput").value = json;
+      if (statusEl) statusEl.textContent = "다운로드를 지원하지 않는 환경이에요.";
+    }
+  }
+
+  // #14: 보유 성유물 전체 삭제
+  async function clearAllArtifacts(){
+    if (!STATE.artifacts.length) return;
+    if (!confirm("정말 비우시겠습니까?")) return;
+    try {
+      for (const a of STATE.artifacts) await artifactsCollection().doc(a.id).delete();
+    } catch(e){
+      alert("삭제 중 오류: " + (e && e.message ? e.message : e));
     }
   }
 
   // ---------- 호요랩 "캐릭터 정보" 화면 붙여넣기 파서 ----------
-  // 형식: <피스 이름> / Lv.NN / <주스탯 이름> / <주스탯 값> / (<부옵션 이름> / [강화횟수 숫자]? / <부옵션 값>) x N
-  // 강화횟수 배지는 항상 1~9 사이 "숫자 한 자리"뿐인 줄이라 이걸로 값 줄과 구분한다
-  // (부옵션 값은 아무리 작아도 두 자리 이상이거나 소수점/%가 붙어있어서 안 겹침).
-  //
-  // 부위 판별: 이름이 NIGHT_SET_PIECE_NAMES에 있으면 그걸로 확정(세트="하늘 경계가 드러난 밤").
-  // 없으면 주스탯 종류로 판별하고 세트는 "오프셋"으로 분류한다 — 게임 규칙상 아래 5가지는 겹칠 수 없음:
-  //   HP(고정치)→꽃, 공격력(고정치)→깃털, 원소 충전 효율%→시계,
-  //   치확%/치피%/치유 보너스%→왕관, 원소딸%/물리딸%→성배.
-  // 공격력%/HP%/방어력%/원소 마스터리만 시계·성배·왕관이 다 가질 수 있어 애매한데,
-  // 캐릭터 정보 화면은 항상 꽃→깃→시계→성배→왕관 순으로 나열되므로 "이 배치에서 몇 번째로
-  // 나온 애매한 항목인지"로 순서대로 시계→성배→왕관에 배정한다 (5개를 한 번에 붙여넣는다는 전제).
+  // 부위 판별: 주스탯 종류로 자동 판별. 세트는 사용자가 미리보기에서 직접 지정.
   function classifySlotFromMainStat(mainName, mainIsPct, posState){
     if (mainName === "HP" && !mainIsPct) return "flower";
     if (mainName === "공격력" && !mainIsPct) return "feather";
     if (mainName === "원소 충전 효율") return "sands";
     if (mainName === "치명타 확률" || mainName === "치명타 피해" || mainName === "치유 보너스") return "circlet";
     if (mainIsPct && mainName !== "치명타 피해" && /피해/.test(mainName)) return "goblet";
-    // 공격력%/HP%/방어력%/원소 마스터리 — 이미 배정된 슬롯(이름 매칭으로 확정된 것 포함)은 건너뛰고
-    // 시계→성배→왕관 순서로 아직 안 쓰인 슬롯에 배정한다.
     const order = ["sands", "goblet", "circlet"];
     return order.find(s => !posState.usedSlots.has(s)) || null;
   }
 
+  // 텍스트를 파싱해서 미리보기용 아이템 배열을 리턴한다. setKey는 아직 미정(사용자가 지정).
   function parseHoyolabPaste(text){
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     const levelIdxs = [];
@@ -936,7 +1019,8 @@
 
       const knownSlot = NIGHT_SET_PIECE_NAMES[name];
       const slotKey = knownSlot || classifySlotFromMainStat(mainName, mainIsPct, posState);
-      const setKey = knownSlot ? "하늘 경계가 드러난 밤" : "오프셋";
+      // 세트 추천: 이름 DB에 있으면 해당 세트, 없으면 첫 번째 옵션을 기본값으로 제안
+      const suggestedSet = knownSlot ? "하늘 경계가 드러난 밤" : SET_OPTIONS[0];
 
       if (!slotKey){
         errors.push(`"${name}": 주스탯("${mainName}")으로 부위를 판별하지 못했어요`);
@@ -944,13 +1028,12 @@
       }
       posState.usedSlots.add(slotKey);
 
-      // 앞 2줄(주스탯 이름+값)은 건너뛰고, 그 뒤부터 부옵션을 반복해서 읽는다.
       let idx = 2;
       const substats = [];
       while (idx < content.length && substats.length < 4){
         const subName = content[idx]; idx++;
         if (idx >= content.length) break;
-        if (/^[1-9]$/.test(content[idx])) idx++; // 강화횟수 배지(있으면) 건너뜀
+        if (/^[1-9]$/.test(content[idx])) idx++;
         if (idx >= content.length) break;
         const rawVal = content[idx]; idx++;
         const m = /^(-?\d+(?:\.\d+)?)(%)?$/.exec(rawVal);
@@ -969,7 +1052,7 @@
 
       const fixed = FIXED_MAIN_STATS[slotKey];
       items.push({
-        slotKey, setKey, rarity: 5, level: 20,
+        name, slotKey, suggestedSet, rarity: 5, level: 20,
         mainStatKey: fixed.key, mainStatValue: fixed.value,
         location: defaultLocation, startedWith4Substats: true, substats,
       });
@@ -980,27 +1063,98 @@
     return { items, errors };
   }
 
-  async function importFromHoyolab(){
+  // 호요랩 파싱 결과를 미리보기 리스트로 표시
+  let hoyoParsedItems = []; // 미리보기 상태 보관
+
+  function showHoyoPreview(items){
+    hoyoParsedItems = items;
+    const root = $("hoyoPreviewList");
+    const setOpts = SET_OPTIONS.map(s =>
+      `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`
+    ).join("");
+
+    root.innerHTML = items.map((item, i) => {
+      const slotLabel = SLOT_MAP[item.slotKey] ? SLOT_MAP[item.slotKey].label : item.slotKey;
+      const slotIcon = SLOT_MAP[item.slotKey] ? SLOT_MAP[item.slotKey].icon : "";
+      // suggestedSet에 맞는 옵션을 selected로 세팅
+      const opts = SET_OPTIONS.map(s =>
+        `<option value="${escapeHtml(s)}" ${s === item.suggestedSet ? "selected" : ""}>${escapeHtml(s)}</option>`
+      ).join("");
+      return `
+        <div class="hoyo-preview-item" data-idx="${i}">
+          <div class="hoyo-preview-head">
+            <span class="slot-label">${iconMarkup(slotIcon)} ${escapeHtml(slotLabel)} — ${escapeHtml(item.name)}</span>
+            <select class="hoyo-set-select">${opts}</select>
+          </div>
+          <div class="hoyo-preview-main">${FIXED_MAIN_STATS[item.slotKey] ? FIXED_MAIN_STATS[item.slotKey].label : ""} ${fmtVal(item.mainStatKey, item.mainStatValue)}</div>
+          <div class="hoyo-preview-subs">${substatsLineHtml(item.substats)}</div>
+        </div>`;
+    }).join("");
+
+    $("hoyoPreview").style.display = "";
+  }
+
+  function hideHoyoPreview(){
+    $("hoyoPreview").style.display = "none";
+    $("hoyoPreviewList").innerHTML = "";
+    hoyoParsedItems = [];
+  }
+
+  // Step 1: 인식하기 — 텍스트 파싱 + 미리보기 렌더
+  function parseAndPreviewHoyo(){
+    const errEl = $("hoyoError");
     const statusEl = $("hoyoStatus");
+    errEl.textContent = ""; errEl.classList.remove("show");
     if (statusEl) statusEl.textContent = "";
+    hideHoyoPreview();
 
     const text = $("hoyoInput").value;
     const { items, errors } = parseHoyolabPaste(text);
 
-    const btn = $("hoyoImportBtn");
-    if (btn) btn.disabled = true;
-    try {
-      for (const data of items) await createArtifactRecord(data);
-    } catch(e){
-      errors.push("저장 중 오류: " + (e && e.message ? e.message : e));
+    if (errors.length){
+      errEl.innerHTML = errors.map(escapeHtml).join("<br>");
+      errEl.classList.add("show");
     }
-    if (btn) btn.disabled = false;
+    if (!items.length){
+      if (!errors.length){
+        errEl.textContent = "인식된 성유물이 없어요.";
+        errEl.classList.add("show");
+      }
+      return;
+    }
+    showHoyoPreview(items);
+  }
 
-    const parts = [];
-    if (items.length) parts.push(`${items.length}개 등록 완료`);
-    if (errors.length) parts.push(...errors);
-    if (statusEl) statusEl.textContent = parts.join(" · ") || "인식된 성유물이 없어요.";
-    if (items.length && !errors.length) $("hoyoInput").value = "";
+  // Step 2: 저장하기 — 사용자가 세트를 지정한 후 실제 저장
+  async function saveHoyoPreview(){
+    const rows = Array.from(document.querySelectorAll("#hoyoPreviewList .hoyo-preview-item"));
+    const statusEl = $("hoyoStatus");
+    const btn = $("hoyoSaveBtn");
+    btn.disabled = true;
+
+    const errors = [];
+    let saved = 0;
+    for (let i = 0; i < rows.length; i++){
+      const item = hoyoParsedItems[i];
+      if (!item) continue;
+      const setKey = rows[i].querySelector(".hoyo-set-select").value;
+      const data = {
+        slotKey: item.slotKey, rarity: item.rarity, setKey, level: item.level,
+        location: item.location, mainStatKey: item.mainStatKey, mainStatValue: item.mainStatValue,
+        substats: item.substats, startedWith4Substats: item.startedWith4Substats,
+      };
+      try { await createArtifactRecord(data); saved++; }
+      catch(e){ errors.push(`${item.name}: 저장 오류 — ${e && e.message ? e.message : e}`); }
+    }
+
+    btn.disabled = false;
+    hideHoyoPreview();
+    if (saved){ if (statusEl) statusEl.textContent = `${saved}개 등록 완료`; $("hoyoInput").value = ""; }
+    if (errors.length){
+      const errEl = $("hoyoError");
+      errEl.innerHTML = errors.map(escapeHtml).join("<br>");
+      errEl.classList.add("show");
+    }
   }
 
   // ---------- save / delete dispatch ----------
@@ -1026,14 +1180,17 @@
     };
 
     const btn = $("saveBtn");
+    const isEditing = !!STATE.editingId;
     btn.disabled = true;
     try {
-      if (STATE.editingId){
+      if (isEditing){
         await artifactsCollection().doc(STATE.editingId).set(data);
+        resetForm(data.slotKey, false);
       } else {
         await createArtifactRecord(data);
+        resetForm(data.slotKey, true);  // 신규 등록: 부옵션만 리셋
+        showFormSuccess("등록 성공");
       }
-      resetForm(data.slotKey);
     } catch(err){
       showFormError("저장 중 문제가 생겼어요: " + (err && err.message ? err.message : err));
     } finally {
@@ -1075,9 +1232,13 @@
       refreshSubstatOptions();
     });
     $("saveBtn").addEventListener("click", saveArtifact);
-    $("cancelBtn").addEventListener("click", resetForm);
+    $("cancelBtn").addEventListener("click", () => resetForm());
     $("substatRows").addEventListener("change", (e) => {
       if (e.target.classList.contains("sub-key")) refreshSubstatOptions();
+      autoFocusSubValue(e);  // #12: 키 선택 시 값 칸으로 자동 포커스
+    });
+    $("resetSubstatsBtn").addEventListener("click", () => {  // #11
+      if (confirm("정말 리셋하시겠습니까?")) renderSubstatRows([]);
     });
     $("buildCharSelect").addEventListener("change", () => {
       STATE.buildCharacter = $("buildCharSelect").value;
@@ -1091,9 +1252,12 @@
     });
     $("reforgeRunBtn").addEventListener("click", runReforgeRecommendation);
     $("jsonImportBtn").addEventListener("click", importFromJson);
-    $("hoyoImportBtn").addEventListener("click", importFromHoyolab);
-    $("jsonExportBtnTop").addEventListener("click", exportJson);
-    $("jsonExportBtnBottom").addEventListener("click", exportJson);
+    $("hoyoParseBtn").addEventListener("click", parseAndPreviewHoyo);
+    $("hoyoSaveBtn").addEventListener("click", saveHoyoPreview);
+    $("hoyoCancelBtn").addEventListener("click", hideHoyoPreview);
+    $("jsonCopyBtn").addEventListener("click", copyJsonToClipboard);   // #13
+    $("jsonExportBtn").addEventListener("click", exportJsonFile);       // #13
+    $("clearAllBtn").addEventListener("click", clearAllArtifacts);      // #14
     $("dustSpentInput").addEventListener("change", () => {
       let v = parseInt($("dustSpentInput").value, 10) || 0;
       v = ((v % 18) + 18) % 18;
@@ -1112,6 +1276,7 @@
   }
 
   initTabs();
+  initSubTabs();
   populateSlotSelect();
   populateSetSelect();
   populateLocationSelect();
