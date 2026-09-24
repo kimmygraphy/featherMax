@@ -93,6 +93,8 @@
   }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .field label.sub-label { font-size: 11.5px; margin-bottom: 4px; }
+  .target-char { color: var(--gold); font-weight: 600; margin-left: 4px; }
 
   input[type="text"], input[type="number"], input[type="password"], select {
     width: 100%;
@@ -237,6 +239,11 @@
     background: transparent;
     border-color: var(--line);
     color: var(--ink-dim);
+  }
+  .reforge-scope-btn.active {
+    border-color: var(--gold-dim);
+    color: var(--gold);
+    background: var(--panel-2);
   }
   button:disabled { opacity: 0.5; cursor: default; }
 
