@@ -10,6 +10,7 @@
     buildCharacter: CHARACTERS[0] ? CHARACTERS[0].name : null,
     buildCharLevel: DEFAULT_CHAR_LEVEL,
     reforgeScope: "equipped", // "equipped" | "all" — 재구축 후보 범위
+    reforgeTargets: {},       // { 캐릭터명: { critRate, er, atk } } — 재구축 목표 (null = 사용 안 함)
   };
 
   // ---------- form setup ----------
@@ -447,17 +448,19 @@
 
     const chosen = SLOTS.map(s => STATE.artifacts.find(a => a.id === STATE.buildSelection[s.key])).filter(Boolean);
 
-    let atkPercentSum = 0, atkFlatSum = 0, critRateSum = 0, critDmgSum = 0;
+    let atkPercentSum = 0, atkFlatSum = 0, critRateSum = 0, critDmgSum = 0, erSum = 0;
     for (const a of chosen){
       if (a.mainStatKey === "atk_") atkPercentSum += a.mainStatValue || 0;
       if (a.mainStatKey === "atk") atkFlatSum += a.mainStatValue || 0;
       if (a.mainStatKey === "critRate_") critRateSum += a.mainStatValue || 0;
       if (a.mainStatKey === "critDMG_") critDmgSum += a.mainStatValue || 0;
+      if (a.mainStatKey === "er_") erSum += a.mainStatValue || 0;
       for (const sub of (a.substats || [])){
         if (sub.key === "atk_") atkPercentSum += sub.value;
         else if (sub.key === "atk") atkFlatSum += sub.value;
         else if (sub.key === "critRate_") critRateSum += sub.value;
         else if (sub.key === "critDMG_") critDmgSum += sub.value;
+        else if (sub.key === "er_") erSum += sub.value;
       }
     }
 
@@ -465,11 +468,12 @@
     const finalCritRate = UNIVERSAL_BASE_CRIT_RATE + char.weaponBaseCritRate + critRateSum;
     const finalCritDMG = char.charBaseCritDMG + critDmgSum;
     const cv = 2 * finalCritRate + finalCritDMG;
+    const finalER = UNIVERSAL_BASE_ER + (char.charBaseER || 0) + (char.weaponBaseER || 0) + erSum;
 
     return {
       char, level, charBaseATK, baseATKSum, chosenCount: chosen.length,
-      atkPercentSum, atkFlatSum, critRateSum, critDmgSum,
-      finalATK, finalCritRate, finalCritDMG, cv,
+      atkPercentSum, atkFlatSum, critRateSum, critDmgSum, erSum,
+      finalATK, finalCritRate, finalCritDMG, finalER, cv,
     };
   }
 
@@ -494,6 +498,7 @@
       <div class="stat-line headline"><span>공격력</span><span class="v">${Math.round(stats.finalATK).toLocaleString()}</span></div>
       <div class="stat-line crit"><span>치명타 확률</span><span class="v">${stats.finalCritRate.toFixed(1)}%</span></div>
       <div class="stat-line crit"><span>치명타 피해</span><span class="v">${stats.finalCritDMG.toFixed(1)}%</span></div>
+      <div class="stat-line"><span>원소 충전 효율</span><span class="v">${stats.finalER.toFixed(1)}%</span></div>
       <div class="stat-line headline"><span>CV (2×치확+치피)</span><span class="v">${stats.cv.toFixed(1)}</span></div>
       <div class="stat-line"><span>성유물 공격력% 합</span><span class="v">${stats.atkPercentSum.toFixed(1)}%</span></div>
       <div class="stat-line"><span>성유물 깡공 합</span><span class="v">${Math.round(stats.atkFlatSum)}</span></div>
@@ -1351,18 +1356,60 @@
     return arr.slice().sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
   }
 
+  // 설정 문서(users/{uid}/meta/settings) 하나에 해석 진도·재구축 범위·캐릭터별 목표를 같이 저장한다.
+  // merge 저장이라 한 항목을 저장해도 다른 항목이 지워지지 않는다.
   async function loadDustSetting(){
+    let d = {};
     try {
       const snap = await settingsDoc().get();
-      $("dustSpentInput").value = (snap.exists && snap.data().dustSpent) || 0;
-    } catch(e){
-      $("dustSpentInput").value = 0;
-    }
+      d = (snap.exists && snap.data()) || {};
+    } catch(e){ /* 기본값 사용 */ }
+    $("dustSpentInput").value = d.dustSpent || 0;
+    STATE.reforgeScope = d.reforgeScope === "all" ? "all" : "equipped";
+    STATE.reforgeTargets = (d.reforgeTargets && typeof d.reforgeTargets === "object") ? d.reforgeTargets : {};
+    renderScopeButtons();
+    renderTargetInputs();
     updatePityDisplay();
   }
 
-  async function saveDustSetting(value){
-    try { await settingsDoc().set({ dustSpent: value }); } catch(e){ /* 무시 — 다음 저장 때 재시도됨 */ }
+  async function saveSettings(partial){
+    try { await settingsDoc().set(partial, { merge: true }); } catch(e){ /* 무시 — 다음 저장 때 재시도됨 */ }
+  }
+  function saveDustSetting(value){ return saveSettings({ dustSpent: value }); }
+
+  function renderScopeButtons(){
+    document.querySelectorAll(".reforge-scope-btn").forEach(b => b.classList.toggle("active", b.dataset.scope === STATE.reforgeScope));
+  }
+
+  // 현재 "캐릭터 스펙" 탭에서 고른 캐릭터의 목표. 3단계 재구축 계산에서 이 값을 쓴다.
+  function getReforgeTargets(){
+    const t = STATE.reforgeTargets[STATE.buildCharacter] || {};
+    return { critRate: t.critRate ?? null, er: t.er ?? null, atk: t.atk ?? null };
+  }
+
+  function renderTargetInputs(){
+    const label = $("reforgeTargetChar");
+    if (label) label.textContent = STATE.buildCharacter ? `· ${STATE.buildCharacter}` : "";
+    const t = getReforgeTargets();
+    document.querySelectorAll(".target-input").forEach(inp => {
+      const v = t[inp.dataset.target];
+      inp.value = v == null ? "" : v;
+    });
+  }
+
+  function onTargetInputChange(e){
+    const inp = e.target;
+    const raw = inp.value.trim();
+    let v = raw === "" ? null : Number(raw);
+    if (v != null && (!isFinite(v) || v < 0)) v = null;
+    if (v != null && inp.dataset.target === "critRate") v = Math.min(v, 100);
+    inp.value = v == null ? "" : v;
+    const char = STATE.buildCharacter;
+    if (!char) return;
+    const cur = Object.assign({ critRate: null, er: null, atk: null }, STATE.reforgeTargets[char]);
+    cur[inp.dataset.target] = v;
+    STATE.reforgeTargets[char] = cur;
+    saveSettings({ reforgeTargets: { [char]: cur } });
   }
 
   function bindEvents(){
@@ -1382,6 +1429,7 @@
     });
     $("buildCharSelect").addEventListener("change", () => {
       STATE.buildCharacter = $("buildCharSelect").value;
+      renderTargetInputs();
       STATE.buildSelection = { flower: "", feather: "", sands: "", goblet: "", circlet: "" };
       renderBuildSelectors();
       computeBuild();
@@ -1391,11 +1439,12 @@
       computeBuild();
     });
     $("reforgeRunBtn").addEventListener("click", runReforgeRecommendation);
+    document.querySelectorAll(".target-input").forEach(inp => inp.addEventListener("change", onTargetInputChange));
     document.querySelectorAll(".reforge-scope-btn").forEach(btn => {
       btn.addEventListener("click", () => {
-        document.querySelectorAll(".reforge-scope-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
         STATE.reforgeScope = btn.dataset.scope;
+        renderScopeButtons();
+        saveSettings({ reforgeScope: STATE.reforgeScope });
       });
     });
     $("jsonImportBtn").addEventListener("click", importFromJson);
@@ -1431,6 +1480,7 @@
   populateBuildCharLevelSelect();
   updateMainStatDisplay();
   renderSubstatRows([]);
+  renderTargetInputs();
   bindEvents();
   watchAuthState();
 
