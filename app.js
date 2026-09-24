@@ -91,41 +91,47 @@
     mountIconSelect("locationField", "location", LOCATION_OPTIONS.map(l => ({ value: l, label: l, icon: getLocationIcon(l) })));
   }
 
+  // 폼에서 현재 선택된 주옵 키. 선택값이 없거나 이 부위에 맞지 않으면 부위 기본값(첫 옵션).
+  function currentFormMainKey(){
+    const slot = $("slotKey").value;
+    const opts = MAIN_STAT_FORM_OPTIONS[slot] || [];
+    const disp = $("mainStatDisplay");
+    const k = disp && disp.dataset.mainKey;
+    if (k && (opts.includes(k) || MAIN_STAT_VALUES_20[k] != null)) return k;
+    return opts[0] || null;
+  }
+
+  // 부위별 주옵 표시. 선택지가 2개 이상인 부위(잔/모자)는 드롭다운.
+  // 수정 중인 성유물의 주옵이 폼 선택지에 없으면(예: 가져오기로 들어온 원충 시계) 선택지에 덧붙여 보존한다.
   function updateMainStatDisplay(){
     const slot = $("slotKey").value;
     const disp = $("mainStatDisplay");
-    if (slot === "circlet"){
-      // 모자는 치피/치확 중 선택 가능한 드롭다운
-      const current = disp.dataset.circletKey || CIRCLET_MAIN_OPTIONS[0].key;
-      disp.innerHTML = `<select id="circletMainSelect">${
-        CIRCLET_MAIN_OPTIONS.map(o =>
-          `<option value="${o.key}" ${o.key===current?"selected":""}>${o.label} ${fmtVal(o.key, o.value)}</option>`
-        ).join("")
-      }</select>`;
-      disp.dataset.circletKey = current;
-      const sel = $("circletMainSelect");
-      sel.addEventListener("change", () => {
-        const prev = disp.dataset.circletKey;
-        disp.dataset.circletKey = sel.value;
-        // 주옵션과 중복되는 부옵션만 리셋
-        const rows = Array.from(document.querySelectorAll("#substatRows .substat-row"));
-        rows.forEach(row => {
-          const subKey = row.querySelector(".sub-key");
-          if (subKey.value === sel.value){
-            subKey.value = "";
-            row.querySelector(".sub-value").value = "";
-          }
-        });
-        // FIXED_MAIN_STATS 동적 갱신
-        const opt = CIRCLET_MAIN_OPTIONS.find(o => o.key === sel.value);
-        if (opt) FIXED_MAIN_STATS.circlet = { key: opt.key, value: opt.value, label: opt.label };
-        refreshSubstatOptions();
-      });
+    const current = currentFormMainKey();
+    disp.dataset.mainKey = current || "";
+    if (!current){ disp.textContent = "—"; return; }
+
+    const opts = (MAIN_STAT_FORM_OPTIONS[slot] || []).slice();
+    if (!opts.includes(current)) opts.push(current);
+    if (opts.length === 1){
+      disp.textContent = mainStatLabel(current) + " " + fmtVal(current, MAIN_STAT_VALUES_20[current]);
       return;
     }
-    const fixed = FIXED_MAIN_STATS[slot];
-    if (!fixed){ disp.textContent = "—"; return; }
-    disp.textContent = fixed.label + " " + fmtVal(fixed.key, fixed.value);
+    disp.innerHTML = `<select id="mainStatSelect">${
+      opts.map(k => `<option value="${k}" ${k===current?"selected":""}>${mainStatLabel(k)} ${fmtVal(k, MAIN_STAT_VALUES_20[k])}</option>`).join("")
+    }</select>`;
+    $("mainStatSelect").addEventListener("change", (e) => {
+      const next = e.target.value;
+      disp.dataset.mainKey = next;
+      // 새 주옵과 같은 부옵이 입력돼 있던 줄만 리셋 (나머지 부옵은 유지)
+      document.querySelectorAll("#substatRows .substat-row").forEach(row => {
+        const subKey = row.querySelector(".sub-key");
+        if (subKey.value === next){
+          subKey.value = "";
+          row.querySelector(".sub-value").value = "";
+        }
+      });
+      refreshSubstatOptions();
+    });
   }
 
   function substatRowHtml(idx, key, value){
@@ -158,7 +164,7 @@
   function refreshSubstatOptions(){
     const rows = Array.from(document.querySelectorAll("#substatRows .substat-row"));
     const selectedKeys = rows.map(r => r.querySelector(".sub-key").value).filter(Boolean);
-    const mainKey = (FIXED_MAIN_STATS[$("slotKey").value] || {}).key;
+    const mainKey = currentFormMainKey();
     rows.forEach(row => {
       const sel = row.querySelector(".sub-key");
       const current = sel.value;
@@ -239,6 +245,7 @@
     $("cancelBtn").style.display = "none";
     if (!preserveFields){
       setFieldValue("slotKey", preserveSlot || "flower");
+      $("mainStatDisplay").dataset.mainKey = "";
       updateMainStatDisplay();
       setFieldValue("setKey", SET_OPTIONS[0]);
       setFieldValue("location", LOCATION_OPTIONS[0]);
@@ -253,6 +260,7 @@
     $("saveBtn").textContent = "수정 완료";
     $("cancelBtn").style.display = "";
     setFieldValue("slotKey", art.slotKey);
+    $("mainStatDisplay").dataset.mainKey = art.mainStatKey || "";
     updateMainStatDisplay();
     setFieldValue("setKey", SET_OPTIONS.includes(art.setKey) ? art.setKey : SET_OPTIONS[0]);
     setFieldValue("location", LOCATION_OPTIONS.includes(art.location) ? art.location : OTHER_LOCATION);
@@ -294,8 +302,7 @@
       if (!items.length) continue;
       html += `<div class="slot-group"><h3>${iconMarkup(s.icon)}${s.label} · ${items.length}개</h3>`;
       for (const a of items){
-        const fixed = FIXED_MAIN_STATS[a.slotKey];
-        const mainName = fixed ? fixed.label : a.mainStatKey;
+        const mainName = mainStatLabel(a.mainStatKey);
         html += `
           <div class="art-item" data-id="${a.id}">
             <div class="art-main">
@@ -370,9 +377,8 @@
     const RELEVANT = ["critRate_", "critDMG_", "atk_", "atk"];
     const parts = (a.substats || []).filter(s => RELEVANT.includes(s.key))
       .map(s => `${SUBSTAT_LABELS[s.key]} ${fmtVal(s.key, s.value)}`);
-    const mainLabel = FIXED_MAIN_STATS[a.slotKey];
-    if (mainLabel && RELEVANT.includes(mainLabel.key)){
-      parts.unshift(`[주]${mainLabel.label} ${fmtVal(mainLabel.key, mainLabel.value)}`);
+    if (RELEVANT.includes(a.mainStatKey) && a.mainStatValue != null){
+      parts.unshift(`[주]${mainStatLabel(a.mainStatKey)} ${fmtVal(a.mainStatKey, a.mainStatValue)}`);
     }
     return `${a.setKey || "세트 미지정"}${parts.length ? " · " + parts.join(", ") : ""}`;
   }
@@ -986,11 +992,14 @@
       startedWith4Substats = true; // 정보가 전혀 없으면 기존 동작대로 낙관적 기본값
     }
 
-    // mainStatKey: 옵티마이저 키 매핑 적용 후, FIXED_MAIN_STATS에 있으면 그 값, 없으면 item 원본 값 사용
-    const mappedMain = normalizeStatKey((item && item.mainStatKey) || "");
-    const fixed = FIXED_MAIN_STATS[slotKey];
-    const mainStatKey = fixed ? fixed.key : mappedMain;
-    const mainStatValue = fixed ? fixed.value : 0;
+    // mainStatKey: 원본 값을 옵티마이저 키 매핑 후 그대로 사용 (잔 원소 피해%, 모자 치확 등 보존).
+    // 필드가 없으면(구버전 내보내기) 부위 기본 주옵으로 채운다. 값은 +20 고정 수치 표에서 가져온다.
+    const rawMain = item && item.mainStatKey ? normalizeStatKey(item.mainStatKey) : (MAIN_STAT_FORM_OPTIONS[slotKey] || [])[0];
+    if (MAIN_STAT_VALUES_20[rawMain] == null){
+      return { ok: false, errors: [`#${idx + 1}: 주옵("${item && item.mainStatKey}")을 인식하지 못했어요`] };
+    }
+    const mainStatKey = rawMain;
+    const mainStatValue = MAIN_STAT_VALUES_20[rawMain];
 
     return {
       ok: true,
@@ -1053,6 +1062,7 @@
     return JSON.stringify(STATE.artifacts.map(a => ({
       slotKey: a.slotKey,
       setKey: a.setKey,
+      mainStatKey: a.mainStatKey,
       location: a.location,
       startedWith4Substats: !!a.startedWith4Substats,
       substats: (a.substats || []).map(s => ({ key: s.key, value: s.value })),
@@ -1170,10 +1180,12 @@
         return;
       }
 
-      const fixed = FIXED_MAIN_STATS[slotKey];
+      const mainEntry = SUBSTAT_NAME_TO_KEY[mainName];
+      const parsedMain = MAIN_STAT_NAME_TO_KEY[mainName] || (mainEntry ? (mainIsPct ? mainEntry.pct : mainEntry.flat) : null);
+      const mainKey = MAIN_STAT_VALUES_20[parsedMain] != null ? parsedMain : (MAIN_STAT_FORM_OPTIONS[slotKey] || [])[0];
       items.push({
         name, slotKey, suggestedSet, rarity: 5, level: 20,
-        mainStatKey: fixed.key, mainStatValue: fixed.value,
+        mainStatKey: mainKey, mainStatValue: MAIN_STAT_VALUES_20[mainKey],
         location: defaultLocation, startedWith4Substats: true, substats,
       });
     });
@@ -1206,7 +1218,7 @@
             <span class="slot-label">${iconMarkup(slotIcon)} ${escapeHtml(slotLabel)} — ${escapeHtml(item.name)}</span>
             <select class="hoyo-set-select">${opts}</select>
           </div>
-          <div class="hoyo-preview-main">${FIXED_MAIN_STATS[item.slotKey] ? FIXED_MAIN_STATS[item.slotKey].label : ""} ${fmtVal(item.mainStatKey, item.mainStatValue)}</div>
+          <div class="hoyo-preview-main">${mainStatLabel(item.mainStatKey)} ${fmtVal(item.mainStatKey, item.mainStatValue)}</div>
           <div class="hoyo-preview-subs">${substatsLineHtml(item.substats)}</div>
         </div>`;
     }).join("");
@@ -1292,15 +1304,15 @@
       return;
     }
     const slotKey = $("slotKey").value;
-    const fixed = FIXED_MAIN_STATS[slotKey] || {};
+    const mainKey = currentFormMainKey();
     const data = {
       slotKey,
       rarity: 5,
       setKey: $("setKey").value,
       level: 20,
       location: $("location").value,
-      mainStatKey: fixed.key,
-      mainStatValue: fixed.value,
+      mainStatKey: mainKey,
+      mainStatValue: MAIN_STAT_VALUES_20[mainKey],
       substats: readSubstatRows(),
       startedWith4Substats: $("startedWith4").checked,
       updatedAt: Date.now(),
@@ -1355,6 +1367,7 @@
 
   function bindEvents(){
     $("slotKey").addEventListener("change", () => {
+      $("mainStatDisplay").dataset.mainKey = "";
       updateMainStatDisplay();
       refreshSubstatOptions();
     });
