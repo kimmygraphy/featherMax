@@ -93,6 +93,8 @@
   }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .weapon-row { display: grid; grid-template-columns: 1fr 76px; gap: 10px; }
+  #buildWeaponNote { color: var(--ink-dim); font-size: 11.5px; line-height: 1.5; }
   .field label.sub-label { font-size: 11.5px; margin-bottom: 4px; }
   .target-char { color: var(--gold); font-weight: 600; margin-left: 4px; }
 
