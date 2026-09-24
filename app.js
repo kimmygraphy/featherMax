@@ -10,7 +10,8 @@
     buildCharacter: CHARACTERS[0] ? CHARACTERS[0].name : null,
     buildCharLevel: DEFAULT_CHAR_LEVEL,
     reforgeScope: "equipped", // "equipped" | "all" — 재구축 후보 범위
-    reforgeTargets: {},       // { 캐릭터명: { critRate, er, atk } } — 재구축 목표 (null = 사용 안 함)
+    reforgeTargets: {},
+    buildWeapons: {},         // { 캐릭터명: { key, refine } } — 캐릭터별 선택 무기       // { 캐릭터명: { critRate, er, atk } } — 재구축 목표 (null = 사용 안 함)
   };
 
   // ---------- form setup ----------
@@ -437,14 +438,76 @@
     });
   }
 
+  // ---------- 무기 선택 ----------
+  // 캐릭터별 선택 무기. 저장값이 없거나 그 캐릭터 무기군이 아니면 기본 무기(전무), 재련 1.
+  function getSelectedWeapon(char){
+    const sel = STATE.buildWeapons[char.name] || {};
+    const w = WEAPON_MAP[sel.key];
+    const key = (w && w.type === char.weaponType) ? w.key : char.defaultWeapon;
+    const refine = Math.min(5, Math.max(1, parseInt(sel.refine, 10) || 1));
+    return { key, refine };
+  }
+  function currentCharBase(char){
+    const sel = getSelectedWeapon(char);
+    return getCharBaseStats(char, STATE.buildCharLevel || DEFAULT_CHAR_LEVEL, sel.key, sel.refine);
+  }
+
+  function weaponPassiveText(w, refine){
+    if (!w || !w.passive) return "";
+    const r = refine - 1, p = w.passive, parts = [];
+    if (p.atk_) parts.push(`공격력 +${p.atk_[r]}%`);
+    if (p.critRate_) parts.push(`치명타 확률 +${p.critRate_[r]}%`);
+    if (p.critDMG_) parts.push(`치명타 피해 +${p.critDMG_[r]}%`);
+    if (p.atkPerER) parts.push(`원충 100% 초과분의 ${p.atkPerER[r]}%만큼 공격력% (최대 ${p.atkPerERMax[r]}%)`);
+    return parts.join(", ");
+  }
+
+  // 무기 드롭다운: 현재 캐릭터의 무기군만, 5성 → 4성 순. 재련 드롭다운 R1~R5.
+  function populateWeaponSelect(){
+    const sel = $("buildWeapon"), rsel = $("buildRefine");
+    if (!sel || !rsel) return;
+    const char = getCharacter(STATE.buildCharacter);
+    if (!char){ sel.innerHTML = ""; return; }
+    const cur = getSelectedWeapon(char);
+    const list = WEAPONS.filter(w => w.type === char.weaponType);
+    const opt = w => `<option value="${w.key}" ${w.key === cur.key ? "selected" : ""}>${escapeHtml(w.name)} · ${SUBSTAT_LABELS[w.sub.key] || mainStatLabel(w.sub.key)} ${fmtVal(w.sub.key, w.sub.value)}</option>`;
+    sel.innerHTML = [5, 4].map(r => {
+      const ws = list.filter(w => w.rarity === r);
+      return ws.length ? `<optgroup label="★${r}">${ws.map(opt).join("")}</optgroup>` : "";
+    }).join("");
+    rsel.innerHTML = [1, 2, 3, 4, 5].map(r => `<option value="${r}" ${r === cur.refine ? "selected" : ""}>R${r}</option>`).join("");
+    const label = $("buildWeaponLabel");
+    if (label) label.textContent = `무기 (${WEAPON_TYPE_LABELS[char.weaponType] || ""})`;
+    renderWeaponNote();
+  }
+  function renderWeaponNote(){
+    const note = $("buildWeaponNote");
+    if (!note) return;
+    const char = getCharacter(STATE.buildCharacter);
+    if (!char){ note.textContent = ""; return; }
+    const cur = getSelectedWeapon(char);
+    const w = WEAPON_MAP[cur.key];
+    const txt = weaponPassiveText(w, cur.refine);
+    note.textContent = w ? `기초 공격력 ${w.baseATK}${txt ? ` · 상시 효과 반영: ${txt}` : " · 반영되는 상시 스탯 효과 없음"}` : "";
+  }
+  function onWeaponChange(){
+    const char = getCharacter(STATE.buildCharacter);
+    if (!char) return;
+    const val = { key: $("buildWeapon").value, refine: parseInt($("buildRefine").value, 10) || 1 };
+    STATE.buildWeapons[char.name] = val;
+    saveSettings({ buildWeapons: { [char.name]: val } });
+    renderWeaponNote();
+    computeBuild();
+  }
+
   // 현재 "캐릭터 스펙" 탭에 선택된 5부위 기준으로 최종 스탯을 계산한다.
   // "캐릭터 스펙" 탭 최종 스펙 표시용. (재구축 계산은 buildReforgeContext가 장착 기준으로 따로 계산)
   function computeBuildStats(){
     const char = getCharacter(STATE.buildCharacter);
     if (!char) return null;
     const level = STATE.buildCharLevel || DEFAULT_CHAR_LEVEL;
-    const charBaseATK = char.atkByLevel[level] != null ? char.atkByLevel[level] : Object.values(char.atkByLevel)[0];
-    const baseATKSum = charBaseATK + char.weaponBaseATK; // ATK%가 곱해지는 기초값(캐릭터+무기)
+    const base = currentCharBase(char);
+    const baseATKSum = base.baseATKSum; // ATK%가 곱해지는 기초값(캐릭터+무기)
 
     const chosen = SLOTS.map(s => STATE.artifacts.find(a => a.id === STATE.buildSelection[s.key])).filter(Boolean);
 
@@ -464,14 +527,14 @@
       }
     }
 
-    const finalATK = baseATKSum * (1 + atkPercentSum / 100) + atkFlatSum;
-    const finalCritRate = UNIVERSAL_BASE_CRIT_RATE + char.weaponBaseCritRate + critRateSum;
-    const finalCritDMG = char.charBaseCritDMG + critDmgSum;
+    const finalER = base.er + erSum;
+    const finalATK = baseATKSum * (1 + totalAtkPct(base, atkPercentSum, finalER) / 100) + atkFlatSum;
+    const finalCritRate = base.critRate + critRateSum;
+    const finalCritDMG = base.critDMG + critDmgSum;
     const cv = 2 * finalCritRate + finalCritDMG;
-    const finalER = UNIVERSAL_BASE_ER + (char.charBaseER || 0) + (char.weaponBaseER || 0) + erSum;
 
     return {
-      char, level, charBaseATK, baseATKSum, chosenCount: chosen.length,
+      char, level, base, baseATKSum, chosenCount: chosen.length,
       atkPercentSum, atkFlatSum, critRateSum, critDmgSum, erSum,
       finalATK, finalCritRate, finalCritDMG, finalER, cv,
     };
@@ -489,10 +552,6 @@
       resultsEl.innerHTML = `<div class="empty">등록된 캐릭터가 없어요.</div>`;
       return;
     }
-    if (!stats.chosenCount){
-      resultsEl.innerHTML = `<div class="empty">부위를 하나 이상 선택하면 빌드가 계산돼요.</div>`;
-      return;
-    }
 
     resultsEl.innerHTML = `
       <div class="stat-line headline"><span>공격력</span><span class="v">${Math.round(stats.finalATK).toLocaleString()}</span></div>
@@ -502,7 +561,7 @@
       <div class="stat-line headline"><span>CV (2×치확+치피)</span><span class="v">${stats.cv.toFixed(1)}</span></div>
       <div class="stat-line"><span>성유물 공격력% 합</span><span class="v">${stats.atkPercentSum.toFixed(1)}%</span></div>
       <div class="stat-line"><span>성유물 깡공 합</span><span class="v">${Math.round(stats.atkFlatSum)}</span></div>
-      <div class="sub-note">${stats.chosenCount}/5부위 선택됨 · 캐릭터 Lv.${stats.level} · 전용 무기 Lv.90 기준</div>
+      <div class="sub-note">${stats.chosenCount}/5부위 선택됨 · 캐릭터 Lv.${stats.level} · ${escapeHtml(stats.base.weapon ? stats.base.weapon.name : "무기")} Lv.90 R${stats.base.refine} 기준</div>
     `;
   }
 
@@ -617,11 +676,11 @@
   //   D = 공격력 × (1 + 유효치확 × 치피). 유효치확은 min(치확, 치확 목표, 100) — 목표 초과 치확은 가치 0.
   //   원충은 딜에 안 들어가고(목표 초과분 가치 0), 공격력은 목표를 넘어도 D로 계속 가치를 인정한다.
   function evalBuild(ctx, sums){
-    const c = ctx.char, t = ctx.targets;
-    const ATK = ctx.baseATKSum * (1 + sums.atk_ / 100) + sums.atk;
-    const CR = UNIVERSAL_BASE_CRIT_RATE + c.weaponBaseCritRate + sums.critRate_;
-    const CD = c.charBaseCritDMG + sums.critDMG_;
-    const ER = UNIVERSAL_BASE_ER + (c.charBaseER || 0) + (c.weaponBaseER || 0) + sums.er_;
+    const b = ctx.base, t = ctx.targets;
+    const ER = b.er + sums.er_;
+    const ATK = ctx.baseATKSum * (1 + totalAtkPct(b, sums.atk_, ER) / 100) + sums.atk;
+    const CR = b.critRate + sums.critRate_;
+    const CD = b.critDMG + sums.critDMG_;
     const crCap = Math.min(100, t.critRate != null ? t.critRate : 100);
     const CReff = Math.max(0, Math.min(CR, crCap));
     const D = ATK * (1 + (CReff / 100) * (CD / 100));
@@ -642,10 +701,9 @@
   function buildReforgeContext(){
     const char = getCharacter(STATE.buildCharacter);
     if (!char) return null;
-    const level = STATE.buildCharLevel || DEFAULT_CHAR_LEVEL;
-    const charBaseATK = char.atkByLevel[level] != null ? char.atkByLevel[level] : Object.values(char.atkByLevel)[0];
+    const base = currentCharBase(char);
     const equipped = getEquippedBySlot();
-    const ctx = { char, baseATKSum: charBaseATK + char.weaponBaseATK, targets: getReforgeTargets(), equipped, restBySlot: {} };
+    const ctx = { char, base, baseATKSum: base.baseATKSum, targets: getReforgeTargets(), equipped, restBySlot: {} };
     const all = emptySums();
     for (const s of SLOTS) addPieceSums(all, equipped[s.key]);
     ctx.current = evalBuild(ctx, all);
@@ -1472,6 +1530,9 @@
     $("dustSpentInput").value = d.dustSpent || 0;
     STATE.reforgeScope = d.reforgeScope === "all" ? "all" : "equipped";
     STATE.reforgeTargets = (d.reforgeTargets && typeof d.reforgeTargets === "object") ? d.reforgeTargets : {};
+    STATE.buildWeapons = (d.buildWeapons && typeof d.buildWeapons === "object") ? d.buildWeapons : {};
+    populateWeaponSelect();
+    computeBuild();
     renderScopeButtons();
     renderTargetInputs();
     updatePityDisplay();
@@ -1535,6 +1596,7 @@
     $("buildCharSelect").addEventListener("change", () => {
       STATE.buildCharacter = $("buildCharSelect").value;
       renderTargetInputs();
+      populateWeaponSelect();
       STATE.buildSelection = { flower: "", feather: "", sands: "", goblet: "", circlet: "" };
       renderBuildSelectors();
       computeBuild();
@@ -1544,6 +1606,8 @@
       computeBuild();
     });
     $("reforgeRunBtn").addEventListener("click", runReforgeRecommendation);
+    $("buildWeapon").addEventListener("change", onWeaponChange);
+    $("buildRefine").addEventListener("change", onWeaponChange);
     document.querySelectorAll(".target-input").forEach(inp => inp.addEventListener("change", onTargetInputChange));
     document.querySelectorAll(".reforge-scope-btn").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1586,6 +1650,7 @@
   updateMainStatDisplay();
   renderSubstatRows([]);
   renderTargetInputs();
+  populateWeaponSelect();
   bindEvents();
   watchAuthState();
 
