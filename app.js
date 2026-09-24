@@ -438,7 +438,7 @@
   }
 
   // 현재 "캐릭터 스펙" 탭에 선택된 5부위 기준으로 최종 스탯을 계산한다.
-  // computeBuild()(화면 렌더용)와 computeDamageWeights()(재구축 가중치용) 둘 다 이걸 쓴다.
+  // "캐릭터 스펙" 탭 최종 스펙 표시용. (재구축 계산은 buildReforgeContext가 장착 기준으로 따로 계산)
   function computeBuildStats(){
     const char = getCharacter(STATE.buildCharacter);
     if (!char) return null;
@@ -524,120 +524,206 @@
   // 보장 롤 미리보기 UI는 뺐지만, calcGuaranteedRolls 자체는 runReforgeRecommendation에서 계속 쓰임.
   function updatePityDisplay(){}
 
-  // ---------- reforge exact expected-value calculation ----------
-  // 예전엔 몬테카를로(3000회 시행 평균)로 기대이득을 "추정"했는데, 경우의 수가 적어서
-  // 사실 정확한 확률분포를 직접 계산할 수 있다. 롤 하나하나의 결과가 유한한 이산분포이므로
-  // 그걸 전부 컨볼루션(합성곱)해서 최종 점수의 정확한 분포를 구하고, 그 분포로 기대이득을 계산한다.
-  // 몬테카를로보다 더 빠르고, 버튼을 몇 번을 눌러도 항상 똑같은 값이 나온다(노이즈 없음).
-  function round6(v){ return Math.round(v * 1e6) / 1e6; }
+  // ---------- 재구축 계산 엔진 ----------
+  // 게임 규칙: 재구축은 부옵 4종과 각 부옵의 초기값을 유지하고, 강화 롤(4줄 시작 5회 / 3줄 시작 4회)만 다시 굴린다.
+  // 사용자가 고른 부옵 2종에는 최소 g회(해석 진도에 따라 2~4)가 보장된다(바닥 보장, rollCountDist 참고).
+  // 각 부옵이 몇 롤을 받는지(개수 벡터)와, 롤 개수별 합계 분포를 조합해 가능한 결과를 전부 정확히 계산한다.
+  const TRACKED_KEYS = ["atk_", "atk", "critRate_", "critDMG_", "er_"]; // 딜/목표 계산에 쓰이는 스탯
+  const r2 = v => Math.round(v * 100) / 100;
+  const meanRoll = k => ROLL_TABLE[k].reduce((a, b) => a + b, 0) / ROLL_TABLE[k].length;
 
-  // ---------- 데미지 기반 가중치 (후보 C) ----------
-  // 데미지 ∝ ATK_total × (1 + 치확×치피)  로 보고, 각 스탯 1%p의 한계 기여도(편미분)를 구한다.
-  //   치확 1%p 가치 = ATK_total × 치피(소수)
-  //   치피 1%p 가치 = ATK_total × 치확(소수)
-  //   공격력% 1%p 가치 = (캐릭터+무기 기초ATK)/100 × (1 + 치확×치피)(소수)
-  // 치피 1단위를 기준(=1)으로 정규화해서, 치확/치피만 있는 기존 CV(2CR+CD)와 눈금이 비슷하게 유지된다.
-  // "캐릭터 스펙" 탭에 빌드가 없으면(캐릭터 미선택/부위 미선택) 레거시 CV 가중치로 자동 대체된다.
-  var LEGACY_CV_WEIGHTS = { critRate_: 2, critDMG_: 1, atk_: 0 };
-
-  function computeDamageWeights(){
-    const stats = computeBuildStats();
-    if (!stats || !stats.chosenCount) return LEGACY_CV_WEIGHTS;
-
-    const CR = stats.finalCritRate / 100;
-    const CD = stats.finalCritDMG / 100;
-    const critMult = 1 + CR * CD;
-
-    const wCritRate = stats.finalATK * CD;
-    const wCritDMG = stats.finalATK * CR;
-    const wAtkPct = (stats.baseATKSum / 100) * critMult;
-
-    if (!(wCritDMG > 0)) return LEGACY_CV_WEIGHTS; // 치확/치피가 0이면 안전하게 레거시로
-
-    return {
-      critRate_: wCritRate / wCritDMG,
-      critDMG_: 1,
-      atk_: wAtkPct / wCritDMG,
-    };
-  }
-
-  // 롤 하나가 `type`으로 확정 배정됐을 때, 가중 점수 기여값의 확률분포(Map: 기여값 → 확률)
-  function rollDistribution(type, weights){
-    const w = (weights || LEGACY_CV_WEIGHTS)[type] || 0;
-    const table = ROLL_TABLE[type];
-    if (!w || !table) return new Map([[0, 1]]); // 가중치 없는 타입(원마/원충/방어력 등)은 기여 없음
-    const m = new Map();
-    for (const v of table){ const k = round6(w * v); m.set(k, (m.get(k) || 0) + 0.25); }
-    return m;
-  }
-
-  // 롤 하나가 `types`(4개) 중 무작위로 배정될 때의 가중 점수 분포
-  function randomRollDistribution(types, weights){
-    const m = new Map();
-    for (const t of types){
-      const sub = rollDistribution(t, weights);
-      for (const [v, p] of sub) m.set(v, (m.get(v) || 0) + p * (1 / types.length));
+  // 부옵별 초기값. 옵티마이저 initialValue가 있으면 그 값, 없으면 "현재값 ÷ 추정 롤 횟수"로 추정.
+  // 추정 롤 횟수 합은 성유물 전체 롤 수(4줄 시작 9 / 3줄 시작 8)에 맞춘다.
+  function estimateInitials(art){
+    const subs = art.substats || [];
+    const total = art.startedWith4Substats ? 9 : 8;
+    const ratio = subs.map(s => ROLL_TABLE[s.key] ? s.value / meanRoll(s.key) : 1);
+    const n = ratio.map(r => Math.max(1, Math.round(r)));
+    let sum = n.reduce((a, b) => a + b, 0);
+    while (sum > total){
+      let best = -1;
+      n.forEach((v, i) => { if (v > 1 && (best < 0 || (v - ratio[i]) > (n[best] - ratio[best]))) best = i; });
+      if (best < 0) break;
+      n[best]--; sum--;
     }
-    return m;
+    while (sum < total){
+      let best = 0;
+      n.forEach((v, i) => { if ((ratio[i] - v) > (ratio[best] - n[best])) best = i; });
+      n[best]++; sum++;
+    }
+    return subs.map((s, i) => {
+      if (s.init != null && isFinite(s.init)) return s.init;
+      const table = ROLL_TABLE[s.key];
+      if (!table) return s.value;
+      return Math.min(table[3], Math.max(table[0], s.value / n[i]));
+    });
   }
 
-  function convolve(dist, add){
-    const result = new Map();
-    for (const [v1, p1] of dist){
-      for (const [v2, p2] of add){
-        const v = round6(v1 + v2);
-        result.set(v, (result.get(v) || 0) + p1 * p2);
+  // k롤 합계의 분포 (값 → 확률). 캐시해서 재사용.
+  const SUM_DIST_CACHE = {};
+  function sumDist(key, k){
+    const ck = key + ":" + k;
+    if (SUM_DIST_CACHE[ck]) return SUM_DIST_CACHE[ck];
+    let dist = new Map([[0, 1]]);
+    for (let i = 0; i < k; i++){
+      const next = new Map();
+      for (const [v, p] of dist){
+        for (const r of ROLL_TABLE[key]){
+          const nv = r2(v + r);
+          next.set(nv, (next.get(nv) || 0) + p / 4);
+        }
       }
+      dist = next;
     }
-    return result;
+    return (SUM_DIST_CACHE[ck] = [...dist]);
   }
 
-  // 부옵션 4개 중, 가중치가 있는 타입(치확/치피/공격력%)이 하나라도 있는 성유물만 재구축 의미가 있다.
-  // 우선순위 2스탯은 가중치가 높은 순으로 상위 2개(치확+치피+공격력% 중 어떤 조합이든 가능).
-  function simulateOneArtifact(art, guaranteedRolls, weights){
-    weights = weights || LEGACY_CV_WEIGHTS;
+  // 부옵 4종 각각이 받는 강화 롤 개수의 분포. pair = 사용자가 선택한 부옵 인덱스 2개, guaranteed = 보장 횟수.
+  // 보장은 "바닥"이다: 매 롤은 4줄 균등이고, 남은 강화 횟수가 아직 못 채운 보장 횟수와 같아지면
+  // 그때부터 남은 롤은 선택한 2종 중에서만(반반) 붙는다. 이미 보장을 채웠으면 끝까지 4줄 균등.
+  function rollCountDist(pair, guaranteed, rollCount){
+    let dist = new Map([["0,0,0,0|0", 1]]);
+    for (let r = 0; r < rollCount; r++){
+      const remaining = rollCount - r;
+      const next = new Map();
+      for (const [key, p] of dist){
+        const [cs, hs] = key.split("|");
+        const v = cs.split(",").map(Number), hits = Number(hs);
+        const forced = Math.max(0, guaranteed - hits) >= remaining;
+        const choices = forced ? pair : [0, 1, 2, 3];
+        for (const i of choices){
+          v[i]++;
+          const nk = v.join(",") + "|" + (hits + (pair.includes(i) ? 1 : 0));
+          v[i]--;
+          next.set(nk, (next.get(nk) || 0) + p / choices.length);
+        }
+      }
+      dist = next;
+    }
+    const merged = new Map();
+    for (const [key, p] of dist){ const cs = key.split("|")[0]; merged.set(cs, (merged.get(cs) || 0) + p); }
+    return [...merged].map(([k, p]) => [k.split(",").map(Number), p]);
+  }
+
+  function emptySums(){ return { atk_: 0, atk: 0, critRate_: 0, critDMG_: 0, er_: 0 }; }
+  function addPieceSums(sums, a){
+    if (!a) return sums;
+    if (sums[a.mainStatKey] != null) sums[a.mainStatKey] += a.mainStatValue || 0;
+    for (const sub of (a.substats || [])) if (sums[sub.key] != null) sums[sub.key] += sub.value;
+    return sums;
+  }
+
+  // 빌드 스탯 → 딜 지표(D)와 목표 부족분(롤 개수 환산).
+  //   D = 공격력 × (1 + 유효치확 × 치피). 유효치확은 min(치확, 치확 목표, 100) — 목표 초과 치확은 가치 0.
+  //   원충은 딜에 안 들어가고(목표 초과분 가치 0), 공격력은 목표를 넘어도 D로 계속 가치를 인정한다.
+  function evalBuild(ctx, sums){
+    const c = ctx.char, t = ctx.targets;
+    const ATK = ctx.baseATKSum * (1 + sums.atk_ / 100) + sums.atk;
+    const CR = UNIVERSAL_BASE_CRIT_RATE + c.weaponBaseCritRate + sums.critRate_;
+    const CD = c.charBaseCritDMG + sums.critDMG_;
+    const ER = UNIVERSAL_BASE_ER + (c.charBaseER || 0) + (c.weaponBaseER || 0) + sums.er_;
+    const crCap = Math.min(100, t.critRate != null ? t.critRate : 100);
+    const CReff = Math.max(0, Math.min(CR, crCap));
+    const D = ATK * (1 + (CReff / 100) * (CD / 100));
+    let deficit = 0, meets = true;
+    if (t.critRate != null && CR < t.critRate){ deficit += (t.critRate - CR) / meanRoll("critRate_"); meets = false; }
+    if (t.er != null && ER < t.er){ deficit += (t.er - ER) / meanRoll("er_"); meets = false; }
+    if (t.atk != null && ATK < t.atk){ deficit += (t.atk - ATK) / (ctx.baseATKSum * meanRoll("atk_") / 100); meets = false; }
+    return { ATK, CR, CD, ER, D, deficit, meets };
+  }
+
+  // 부족분이 더 작으면 더 좋은 빌드, 같으면 딜이 높은 쪽.
+  function betterEval(a, b){
+    if (Math.abs(a.deficit - b.deficit) > 1e-9) return a.deficit < b.deficit ? a : b;
+    return a.D >= b.D ? a : b;
+  }
+
+  // 재구축에 필요한 빌드 맥락: 캐릭터, 목표, 슬롯별 장착품, 슬롯을 비운 나머지 빌드 합계, 현재 빌드 평가.
+  function buildReforgeContext(){
+    const char = getCharacter(STATE.buildCharacter);
+    if (!char) return null;
+    const level = STATE.buildCharLevel || DEFAULT_CHAR_LEVEL;
+    const charBaseATK = char.atkByLevel[level] != null ? char.atkByLevel[level] : Object.values(char.atkByLevel)[0];
+    const equipped = getEquippedBySlot();
+    const ctx = { char, baseATKSum: charBaseATK + char.weaponBaseATK, targets: getReforgeTargets(), equipped, restBySlot: {} };
+    const all = emptySums();
+    for (const s of SLOTS) addPieceSums(all, equipped[s.key]);
+    ctx.current = evalBuild(ctx, all);
+    for (const s of SLOTS){
+      const rest = emptySums();
+      for (const o of SLOTS) if (o.key !== s.key) addPieceSums(rest, equipped[o.key]);
+      ctx.restBySlot[s.key] = rest;
+    }
+    return ctx;
+  }
+
+  // 한 성유물을 재구축했을 때의 결과. 확정 롤을 줄 부옵 2종은 가능한 조합을 전부 계산해서 가장 좋은 걸 고른다.
+  //  - 장착 중인 성유물: 재구축 결과가 그대로 빌드에 들어간다 (나빠질 수도 있음 → 기대치가 음수일 수 있음).
+  //  - 미장착 성유물: 결과가 장착품보다 좋을 때만 교체한다고 보고, 현재 빌드 대비 이득을 계산한다.
+  function simulateReforge(art, ctx, guaranteed){
     const subs = art.substats || [];
     if (subs.length < 4) return { skip: true, reason: "부옵션 4개 모두 입력해야 계산돼요" };
-
     const types = subs.map(s => s.key);
-    const relevant = types.filter(t => (weights[t] || 0) > 0);
-    if (!relevant.length) return { skip: true, reason: "치확/치피/공격력% 부옵션이 없어 재구축 효과 없음" };
-
-    // 꽃/깃털은 시계·잔과 달리 주옵이 공격력%가 아니라서, 부옵으로 공격력%를 못 챙기면
-    // 그 성유물은 이 빌드에서 영원히 공격력%를 공급할 수 없다(재구축은 부옵 종류를 못 바꿈).
-    // 빌드가 잡혀서 공격력%가 실제로 가치 있는 상황(weights.atk_ > 0)에서만 이 필터를 적용한다.
-    if ((weights.atk_ || 0) > 0 && (art.slotKey === "flower" || art.slotKey === "feather") && !types.includes("atk_")){
+    const tracked = types.map((k, i) => TRACKED_KEYS.includes(k) ? i : -1).filter(i => i >= 0);
+    if (!tracked.length) return { skip: true, reason: "공격력·치확·치피·원충 부옵이 없어 재구축 효과 없음" };
+    if ((art.slotKey === "flower" || art.slotKey === "feather") && !types.includes("atk_")){
       return { skip: true, reason: "공격력% 부옵이 없어 후보에서 제외 (꽃/깃털은 공격력% 확보가 가능한 유일한 부위)" };
     }
 
-    const oldScore = subs.reduce((acc, s) => acc + (weights[s.key] || 0) * s.value, 0);
-
-    let priority = relevant.slice().sort((a, b) => weights[b] - weights[a]).slice(0, 2);
-    if (priority.length === 1){
-      const other = types.find(t => t !== priority[0]);
-      priority.push(other);
-    }
-
     const rollCount = art.startedWith4Substats ? 5 : 4;
-    const guaranteed = Math.min(guaranteedRolls || 2, rollCount);
+    const g = Math.min(guaranteed || 2, rollCount);
+    const inits = estimateInitials(art);
+    const equippedPiece = ctx.equipped[art.slotKey];
+    const isEquipped = !!equippedPiece && equippedPiece.id === art.id;
 
-    let dist = new Map([[0, 1]]);
-    for (let g = 0; g < guaranteed; g++) dist = convolve(dist, rollDistribution(priority[g % 2], weights));
-    if (guaranteed < rollCount){
-      const randDist = randomRollDistribution(types, weights);
-      for (let r = guaranteed; r < rollCount; r++) dist = convolve(dist, randDist);
+    // 재구축과 무관한 부분(나머지 부위 + 이 성유물 주옵 + 부옵 초기값)은 고정
+    const fixed = Object.assign({}, ctx.restBySlot[art.slotKey]);
+    if (fixed[art.mainStatKey] != null) fixed[art.mainStatKey] += art.mainStatValue || 0;
+    tracked.forEach(i => { fixed[types[i]] += inits[i]; });
+
+    // 확정 롤 대상 조합: 딜/목표에 쓰이는 부옵끼리. 그런 부옵이 1개뿐이면 나머지 하나는 아무거나 (결과 동일).
+    const pairs = [];
+    if (tracked.length >= 2){
+      for (let a = 0; a < tracked.length; a++) for (let b = a + 1; b < tracked.length; b++) pairs.push([tracked[a], tracked[b]]);
+    } else {
+      pairs.push([tracked[0], [0, 1, 2, 3].find(i => i !== tracked[0])]);
     }
 
-    let expectedGain = 0;
-    for (const [v, p] of dist) expectedGain += p * Math.max(0, v - oldScore);
+    let best = null;
+    for (const pair of pairs){
+      let eDef = 0, eD = 0, pMeet = 0;
+      for (const [counts, pc] of rollCountDist(pair, g, rollCount)){
+        // 추적 부옵별 롤 합계 분포의 곱(독립)을 전부 순회
+        const dims = tracked.filter(i => counts[i] > 0).map(i => ({ key: types[i], dist: sumDist(types[i], counts[i]) }));
+        const sums = Object.assign({}, fixed);
+        const walk = (d, p) => {
+          if (d === dims.length){
+            const ev = evalBuild(ctx, sums);
+            const chosen = isEquipped ? ev : betterEval(ev, ctx.current);
+            eDef += p * chosen.deficit; eD += p * chosen.D; if (chosen.meets) pMeet += p;
+            return;
+          }
+          const { key, dist } = dims[d];
+          for (const [v, pv] of dist){ sums[key] += v; walk(d + 1, p * pv); sums[key] -= v; }
+        };
+        walk(0, pc);
+      }
+      const res = {
+        pair,
+        reduction: ctx.current.deficit - eDef,
+        gainPct: (eD / ctx.current.D - 1) * 100,
+        pMeet,
+      };
+      if (!best || res.reduction > best.reduction + 1e-9 || (Math.abs(res.reduction - best.reduction) <= 1e-9 && res.gainPct > best.gainPct)) best = res;
+    }
 
     const dust = DUST_COST[art.slotKey] || 2;
     return {
-      skip: false,
-      oldCV: oldScore, expectedGain, dust,
-      efficiency: expectedGain / dust,
-      priorityLabel: priority.map(p => SUBSTAT_LABELS[p]).join(" + "),
-      guaranteedRolls: guaranteed,
+      skip: false, isEquipped, dust, guaranteedRolls: g,
+      reduction: best.reduction, gainPct: best.gainPct, pMeet: best.pMeet,
+      reductionPerDust: best.reduction / dust,
+      efficiency: best.gainPct / dust,
+      priorityLabel: best.pair.map(i => SUBSTAT_LABELS[types[i]]).join(" + "),
     };
   }
 
@@ -696,7 +782,12 @@
 
     const progress = parseInt($("dustSpentInput").value, 10) || 0;
     const { activeSet, flexSlots } = getActiveSetInfo();
-    const weights = computeDamageWeights(); // 빌드 있으면 ATK%까지 반영, 없으면 레거시 CV로 자동 대체
+    const ctx = buildReforgeContext();
+    if (!ctx){
+      root.innerHTML = `<div class="empty">"캐릭터 스펙" 탭에서 캐릭터를 먼저 선택해주세요.</div>`;
+      return;
+    }
+    const hasTargets = ["critRate", "er", "atk"].some(k => ctx.targets[k] != null);
 
     // 활성 세트가 없으면 전부 대상. 있으면: 활성 세트 소속이거나, 여유 슬롯(세트 상관없이 껴도 되는 자리)인 것만 후보.
     const inScope = a => !activeSet || a.setKey === activeSet || flexSlots.has(a.slotKey);
@@ -706,12 +797,15 @@
     const scored = inSet.map(a => {
       const cost = DUST_COST[a.slotKey] || 2;
       const guaranteedRolls = calcGuaranteedRolls(progress, cost);
-      return { art: a, ...simulateOneArtifact(a, guaranteedRolls, weights) };
+      return { art: a, ...simulateReforge(a, ctx, guaranteedRolls) };
     });
+    // 1순위: 가루당 목표 부족분 해소량(롤 단위), 2순위: 가루당 기대 딜 상승률
     scored.sort((x, y) => {
       if (x.skip && y.skip) return 0;
       if (x.skip) return 1;
       if (y.skip) return -1;
+      const dr = Math.round((y.reductionPerDust - x.reductionPerDust) * 1000);
+      if (dr !== 0) return dr;
       return y.efficiency - x.efficiency;
     });
 
@@ -727,16 +821,22 @@
             <div class="rf-detail">${s.reason}</div>
           </div>`;
       }
+      const sign = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
+      const targetLine = hasTargets
+        ? `<div class="rf-detail"><span>부족분 해소 ${sign(s.reduction)}롤</span><span>목표 달성 확률 ${(s.pMeet * 100).toFixed(0)}%</span></div>`
+        : "";
+      const eqBadge = s.isEquipped ? `<span class="rf-badge">장착 중</span>` : "";
       return `
-        <div class="reforge-item${outOfSet ? " zero" : ""}">
+        <div class="reforge-item${outOfSet || s.efficiency < 0 ? " zero" : ""}">
           <div class="rf-head">
-            <span class="rf-title">${title}${locBadge}${outBadge}</span>
-            <span class="rf-eff">+${s.efficiency.toFixed(2)}/가루</span>
+            <span class="rf-title">${title}${locBadge}${eqBadge}${outBadge}</span>
+            <span class="rf-eff">딜 ${sign(s.efficiency)}%/가루</span>
           </div>
           <div class="rf-subs">${substatsLineHtml(s.art.substats)}</div>
+          ${targetLine}
           <div class="rf-detail">
-            <span>현재 점수 ${s.oldCV.toFixed(1)}</span>
-            <span class="rf-priority">우선순위: ${s.priorityLabel}</span>
+            <span>기대 딜 ${sign(s.gainPct)}%</span>
+            <span class="rf-priority">확정 롤 추천: ${s.priorityLabel}</span>
           </div>
         </div>`;
     };
@@ -752,15 +852,17 @@
       html += `<p class="reforge-note pity-banner">${pityText}</p>`;
     }
 
-    // 빌드가 없으면(캐릭터/부위 미선택) 레거시 CV 기준으로 대체됐음을 안내.
-    if (weights === LEGACY_CV_WEIGHTS){
-      html += `<p class="reforge-note">"캐릭터 스펙" 탭에서 빌드를 선택하면 공격력%까지 반영한 정밀 계산으로 전환돼요. 지금은 치확/치피만 보는 기존 방식(CV)이에요.</p>`;
-    } else {
-      html += `<p class="reforge-note">현재 빌드(공격력/치확/치피) 기준으로 공격력%까지 반영해 계산했어요.</p>`;
+    const cur = ctx.current, t = ctx.targets;
+    const statusParts = [];
+    if (t.critRate != null) statusParts.push(`치확 ${cur.CR.toFixed(1)}% / ${t.critRate}%`);
+    if (t.er != null) statusParts.push(`원충 ${cur.ER.toFixed(1)}% / ${t.er}%`);
+    if (t.atk != null) statusParts.push(`공격력 ${Math.round(cur.ATK)} / ${t.atk}`);
+    html += `<p class="reforge-note">범위: ${STATE.reforgeScope === "equipped" ? "장착 중인 성유물만" : "배낭 전체 (미장착은 장착품보다 좋아질 때 교체 기준)"}</p>`;
+    if (statusParts.length){
+      html += `<p class="reforge-note">현재 빌드 / 목표 — ${statusParts.join(" · ")}${cur.meets ? " (모두 충족)" : ""}</p>`;
     }
-    html += `<p class="reforge-note">범위: ${STATE.reforgeScope === "equipped" ? "장착 중인 성유물만" : "배낭 전체"}</p>`;
 
-    html += `<div class="reforge-table-head"><span>성유물</span><span>기대 상승치</span></div>`;
+    html += `<div class="reforge-table-head"><span>성유물</span><span>가루당 기대 딜 상승</span></div>`;
     html += scored.map(s => renderItem(s, false)).join("");
 
     if (outSet.length){
@@ -976,7 +1078,10 @@
       const val = Number(s.value);
       if (!isFinite(val)) continue;
       seen.add(mappedKey);
-      substats.push({ key: mappedKey, value: val });
+      const sub = { key: mappedKey, value: val };
+      const init = Number(s.initialValue);
+      if (s.initialValue != null && isFinite(init)) sub.init = init; // 옵티마이저가 아는 초기값 (재구축 계산에 사용)
+      substats.push(sub);
       if (substats.length >= 4) break;
     }
     // 풀강(+20) 성유물은 3줄/4줄 시작 여부와 무관하게 4강 시점에 4번째 줄이 무조건 열리므로,
@@ -1070,7 +1175,7 @@
       mainStatKey: a.mainStatKey,
       location: a.location,
       startedWith4Substats: !!a.startedWith4Substats,
-      substats: (a.substats || []).map(s => ({ key: s.key, value: s.value })),
+      substats: (a.substats || []).map(s => (s.init != null ? { key: s.key, value: s.value, initialValue: s.init } : { key: s.key, value: s.value })),
     })), null, 2);
   }
 
