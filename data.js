@@ -98,6 +98,38 @@
     { key: "critRate_", value: 31.1, label: "치명타 확률" },
   ];
 
+  // 5성 +20 주옵 수치 (모든 주옵 종류). JSON/호요랩 가져오기는 부위와 무관하게 이 표에서 값을 찾는다.
+  var MAIN_STAT_VALUES_20 = {
+    hp: 4780, atk: 311, hp_: 46.6, atk_: 46.6, def_: 58.3, em: 186.5, er_: 51.8,
+    critRate_: 31.1, critDMG_: 62.2, heal_: 35.9,
+    physical_dmg_: 58.3, anemo_dmg_: 46.6, geo_dmg_: 46.6, electro_dmg_: 46.6,
+    hydro_dmg_: 46.6, pyro_dmg_: 46.6, cryo_dmg_: 46.6, dendro_dmg_: 46.6,
+  };
+  var MAIN_STAT_LABELS = Object.assign({}, SUBSTAT_LABELS, {
+    heal_: "치유 보너스",
+    physical_dmg_: "물리 피해 보너스", anemo_dmg_: "바람 원소 피해 보너스", geo_dmg_: "바위 원소 피해 보너스",
+    electro_dmg_: "번개 원소 피해 보너스", hydro_dmg_: "물 원소 피해 보너스", pyro_dmg_: "불 원소 피해 보너스",
+    cryo_dmg_: "얼음 원소 피해 보너스", dendro_dmg_: "풀 원소 피해 보너스",
+  });
+  function mainStatLabel(key){ return MAIN_STAT_LABELS[key] || key || "—"; }
+
+  // 수동 등록 폼에서 부위별로 고를 수 있는 주옵. 1개뿐인 부위는 고정 표시, 2개 이상이면 드롭다운.
+  var MAIN_STAT_FORM_OPTIONS = {
+    flower: ["hp"],
+    feather: ["atk"],
+    sands: ["atk_"],
+    goblet: ["atk_", "pyro_dmg_", "hydro_dmg_", "electro_dmg_", "cryo_dmg_", "anemo_dmg_", "geo_dmg_", "dendro_dmg_",
+             "physical_dmg_", "hp_", "def_", "em"],
+    circlet: ["critDMG_", "critRate_"],
+  };
+
+  // 호요랩 화면의 주옵 이름 → 키 (원소/물리 피해·치유는 부옵에 없어서 따로 둠)
+  var MAIN_STAT_NAME_TO_KEY = {
+    "물리 피해 보너스": "physical_dmg_", "바람 원소 피해 보너스": "anemo_dmg_", "바위 원소 피해 보너스": "geo_dmg_",
+    "번개 원소 피해 보너스": "electro_dmg_", "물 원소 피해 보너스": "hydro_dmg_", "불 원소 피해 보너스": "pyro_dmg_",
+    "얼음 원소 피해 보너스": "cryo_dmg_", "풀 원소 피해 보너스": "dendro_dmg_", "치유 보너스": "heal_",
+  };
+
   // 옵티마이저 영문 세트키 → 한글 세트명 매핑
   var ARTIFACT_SET_KEY_MAP = {
     ADayCarvedFromRisingWinds: "바람이 시작되는 날",
